@@ -720,20 +720,25 @@ def smart_send(user_id, post_id=None):
     if not configs:
         m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
         save_message_history(user_id, [m.message_id])
-        return
+        return False                          # ✅ أضفنا return False
 
     ids = []
 
-    # 3️⃣ إرسال كألبوم
+    # 3️⃣ إرسال
     if len(configs) == 1:
         cfg = configs[0]
         caption = "📄 1/1"
         if cfg.get("name"): caption += f" • {cfg['name']}"
         try:
-            d = bot.send_document(user_id, cfg["file_id"], caption=caption)
+            d = bot.send_document(
+                user_id,
+                cfg["file_id"],
+                caption=caption,
+                parse_mode=None               # ✅ هذا السطر الجديد!
+            )
             ids.append(d.message_id)
         except Exception as e:
-            print(f"Send error: {e}")
+            print(f"Single file error: {e}")
     else:
         chunks = [configs[i:i+10] for i in range(0, len(configs), 10)]
         for ci, chunk in enumerate(chunks):
@@ -749,13 +754,20 @@ def smart_send(user_id, post_id=None):
             except:
                 for cfg in chunk:
                     try:
-                        d = bot.send_document(user_id, cfg["file_id"])
+                        d = bot.send_document(
+                            user_id,
+                            cfg["file_id"],
+                            parse_mode=None   # ✅ هذا السطر الجديد!
+                        )
                         ids.append(d.message_id)
                     except: pass
 
     # 4️⃣ حفظ
-    save_message_history(user_id, ids)
-    record_download(user_id, post_id)
+    if ids:                                   # ✅ فحص قبل الحفظ
+        save_message_history(user_id, ids)
+        record_download(user_id, post_id)
+        return True                           # ✅ نجح
+    return False                              # ✅ فشل
 
 
 # ══════════════════════════════════════════
@@ -892,3 +904,4 @@ if __name__ == "__main__":
             print("🔄 Restarting...")
         else:
             consecutive_409 = 0
+
