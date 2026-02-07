@@ -1,17 +1,12 @@
 import time
 import os
-from pymongo import MongoClient, ASCENDING
-
-# ══════════════════════════════════════════
-#  MongoDB Atlas Connection
-# ══════════════════════════════════════════
+from pymongo import MongoClient
 
 MONGO_URI = os.environ.get("MONGO_URI", "YOUR_MONGODB_URI")
 
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = client["vpn_bot_v13"]
 
-# Collections
 users_col     = db["users"]
 likes_col     = db["likes"]
 configs_col   = db["configs"]
@@ -37,7 +32,6 @@ def init_db():
             "maintenance_mode": False,
             "require_subscription": True,
             "custom_post_text": "",
-            "welcome_message": "",
             "total_downloads": 0
         }
         for key, val in defaults.items():
@@ -46,7 +40,6 @@ def init_db():
                 {"$setOnInsert": {"key": key, "value": val}},
                 upsert=True
             )
-
         print("✅ MongoDB Connected & Initialized!")
         return True
     except Exception as e:
@@ -54,14 +47,11 @@ def init_db():
         return False
 
 
-# ══════════════════════════════════════════
-#  SETTINGS
-# ══════════════════════════════════════════
+# ══════════ SETTINGS ══════════
 
 def get_setting(key, default=None):
     doc = settings_col.find_one({"key": key})
     return doc["value"] if doc else default
-
 
 def set_setting(key, value):
     settings_col.update_one(
@@ -71,9 +61,7 @@ def set_setting(key, value):
     )
 
 
-# ══════════════════════════════════════════
-#  USERS
-# ══════════════════════════════════════════
+# ══════════ USERS ══════════
 
 def add_user(user_id, username=None, first_name=None, referrer_id=None):
     result = users_col.update_one(
@@ -95,9 +83,7 @@ def add_user(user_id, username=None, first_name=None, referrer_id=None):
         },
         upsert=True
     )
-
     is_new = result.upserted_id is not None
-
     if is_new and referrer_id:
         try:
             referrals_col.insert_one({
@@ -108,9 +94,7 @@ def add_user(user_id, username=None, first_name=None, referrer_id=None):
             })
         except:
             pass
-
     return is_new
-
 
 def get_all_users():
     docs = users_col.find(
@@ -119,15 +103,8 @@ def get_all_users():
     )
     return [d["user_id"] for d in docs]
 
-
-def get_all_user_ids():
-    docs = users_col.find({}, {"user_id": 1})
-    return [d["user_id"] for d in docs]
-
-
 def get_users_count():
     return users_col.count_documents({})
-
 
 def get_active_count():
     return users_col.count_documents({
@@ -135,52 +112,27 @@ def get_active_count():
         "is_banned": {"$ne": True}
     })
 
-
 def mark_user_blocked(user_id):
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"is_blocked": True}}
-    )
-
+    users_col.update_one({"user_id": user_id}, {"$set": {"is_blocked": True}})
 
 def ban_user(user_id):
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"is_banned": True}},
-        upsert=True
-    )
-
+    users_col.update_one({"user_id": user_id}, {"$set": {"is_banned": True}}, upsert=True)
 
 def unban_user(user_id):
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"is_banned": False}}
-    )
-
+    users_col.update_one({"user_id": user_id}, {"$set": {"is_banned": False}})
 
 def is_banned(user_id):
     doc = users_col.find_one({"user_id": user_id})
     return doc.get("is_banned", False) if doc else False
 
-
-def get_user_info(user_id):
-    return users_col.find_one({"user_id": user_id})
-
-
 def search_user(user_id):
     doc = users_col.find_one({"user_id": user_id})
     if not doc:
         return None
-
-    ref_count = referrals_col.count_documents({"referrer_id": user_id})
-    like_count = likes_col.count_documents({"user_id": user_id})
-    dl_count = downloads_col.count_documents({"user_id": user_id})
-
-    doc["referral_count"] = ref_count
-    doc["like_count"] = like_count
-    doc["download_count"] = dl_count
+    doc["referral_count"] = referrals_col.count_documents({"referrer_id": user_id})
+    doc["like_count"] = likes_col.count_documents({"user_id": user_id})
+    doc["download_count"] = downloads_col.count_documents({"user_id": user_id})
     return doc
-
 
 def export_users_list():
     docs = users_col.find({}).sort("joined_at", -1)
@@ -192,13 +144,10 @@ def export_users_list():
     return lines
 
 
-# ══════════════════════════════════════════
-#  REFERRALS
-# ══════════════════════════════════════════
+# ══════════ REFERRALS ══════════
 
 def get_referral_count(user_id):
     return referrals_col.count_documents({"referrer_id": user_id})
-
 
 def get_referral_leaderboard(limit=10):
     pipeline = [
@@ -213,9 +162,7 @@ def get_referral_leaderboard(limit=10):
     return results
 
 
-# ══════════════════════════════════════════
-#  LIKES
-# ══════════════════════════════════════════
+# ══════════ LIKES ══════════
 
 def add_like(user_id, message_id, username):
     try:
@@ -229,38 +176,23 @@ def add_like(user_id, message_id, username):
     except:
         return False
 
-
 def has_liked(user_id, message_id):
-    return likes_col.find_one({
-        "user_id": user_id,
-        "message_id": message_id
-    }) is not None
-
+    return likes_col.find_one({"user_id": user_id, "message_id": message_id}) is not None
 
 def get_likes_count(message_id):
     if message_id is None:
         return 0
     return likes_col.count_documents({"message_id": message_id})
 
-
 def get_all_likers():
-    pipeline = [
-        {"$group": {
-            "_id": "$user_id",
-            "name": {"$first": "$username"}
-        }}
-    ]
-    return [{"id": r["_id"], "name": r["name"]}
-            for r in likes_col.aggregate(pipeline)]
-
+    pipeline = [{"$group": {"_id": "$user_id", "name": {"$first": "$username"}}}]
+    return [{"id": r["_id"], "name": r["name"]} for r in likes_col.aggregate(pipeline)]
 
 def clear_likes():
     likes_col.delete_many({})
 
 
-# ══════════════════════════════════════════
-#  CONFIGS
-# ══════════════════════════════════════════
+# ══════════ CONFIGS ══════════
 
 def add_config(file_id, file_name=None):
     count = configs_col.count_documents({})
@@ -271,45 +203,26 @@ def add_config(file_id, file_name=None):
         "added_at": time.time()
     })
 
-
 def get_all_configs():
     docs = configs_col.find({}).sort("order", 1)
-    return [{"file_id": d["file_id"], "name": d.get("file_name")}
-            for d in docs]
-
+    return [{"file_id": d["file_id"], "name": d.get("file_name")} for d in docs]
 
 def get_configs_count():
     return configs_col.count_documents({})
-
 
 def clear_configs():
     configs_col.delete_many({})
 
 
-# ══════════════════════════════════════════
-#  DOWNLOADS
-# ══════════════════════════════════════════
+# ══════════ DOWNLOADS ══════════
 
 def record_download(user_id, post_id=None):
-    downloads_col.insert_one({
-        "user_id": user_id,
-        "post_id": post_id,
-        "at": time.time()
-    })
-    settings_col.update_one(
-        {"key": "total_downloads"},
-        {"$inc": {"value": 1}},
-        upsert=True
-    )
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$inc": {"download_count": 1}}
-    )
-
+    downloads_col.insert_one({"user_id": user_id, "post_id": post_id, "at": time.time()})
+    settings_col.update_one({"key": "total_downloads"}, {"$inc": {"value": 1}}, upsert=True)
+    users_col.update_one({"user_id": user_id}, {"$inc": {"download_count": 1}})
 
 def get_total_downloads():
     return get_setting("total_downloads", 0)
-
 
 def get_post_downloads(post_id):
     if post_id is None:
@@ -317,9 +230,7 @@ def get_post_downloads(post_id):
     return downloads_col.count_documents({"post_id": post_id})
 
 
-# ══════════════════════════════════════════
-#  MESSAGE HISTORY
-# ══════════════════════════════════════════
+# ══════════ MESSAGE HISTORY ══════════
 
 def save_message_history(user_id, msg_ids):
     history_col.delete_many({"user_id": user_id})
@@ -329,39 +240,31 @@ def save_message_history(user_id, msg_ids):
             for mid in msg_ids
         ])
 
-
 def get_message_history(user_id):
     docs = history_col.find({"user_id": user_id})
     return [d["msg_id"] for d in docs]
-
 
 def clear_message_history(user_id):
     history_col.delete_many({"user_id": user_id})
 
 
-# ══════════════════════════════════════════
-#  POSTS
-# ══════════════════════════════════════════
+# ══════════ POSTS ══════════
 
 def add_post(message_id, text=None):
     try:
         posts_col.insert_one({
             "message_id": message_id,
             "text": text,
-            "posted_at": time.time(),
-            "downloads": 0
+            "posted_at": time.time()
         })
     except:
         pass
-
 
 def get_last_post():
     return posts_col.find_one(sort=[("posted_at", -1)])
 
 
-# ══════════════════════════════════════════
-#  RESET & STATS
-# ══════════════════════════════════════════
+# ══════════ RESET & STATS ══════════
 
 def full_reset():
     likes_col.delete_many({})
@@ -371,17 +274,13 @@ def full_reset():
     downloads_col.delete_many({})
     set_setting("total_downloads", 0)
 
-
 def get_stats():
     total   = users_col.count_documents({})
     blocked = users_col.count_documents({"is_blocked": True})
     banned  = users_col.count_documents({"is_banned": True})
-    active  = total - blocked - banned
-    if active < 0:
-        active = 0
-
-    configs    = configs_col.count_documents({})
-    total_dl   = get_setting("total_downloads", 0)
+    active  = max(0, total - blocked - banned)
+    configs = configs_col.count_documents({})
+    total_dl = get_setting("total_downloads", 0)
     total_refs = referrals_col.count_documents({})
 
     pipeline = [{"$group": {"_id": "$user_id"}}]
@@ -389,6 +288,7 @@ def get_stats():
 
     day_ago = time.time() - 86400
     new_today = users_col.count_documents({"joined_at": {"$gte": day_ago}})
+    dl_today = downloads_col.count_documents({"at": {"$gte": day_ago}})
 
     return {
         "total_users": total,
@@ -399,5 +299,6 @@ def get_stats():
         "unique_likers": unique_likers,
         "total_downloads": total_dl,
         "total_referrals": total_refs,
-        "new_today": new_today
+        "new_today": new_today,
+        "dl_today": dl_today
     }
