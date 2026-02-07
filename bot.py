@@ -4,12 +4,12 @@ from flask import Flask
 from threading import Thread
 import os
 import json
-import io # مكتبة لصنع الملفات النصية
+import io
 
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAGRF0uCeBP8-Xa6RYniY5WGUc7W3Bw1CEc"   # ⚠️ ضع التوكن
+TOKEN = "8579121219:AAFSFBOSuhWgM-mSqJwEs8EyLQc6NAWjwBk"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
 LIKES_FILE = "likes_db.json"
@@ -37,103 +37,116 @@ likes_data = load_json(LIKES_FILE)
 stored_configs = load_json(CONFIGS_FILE)
 
 # ==============================
-# 🎮 لوحة تحكم الأدمن (المطورة)
+# 🎮 لوحة تحكم الأدمن (كيبورد سفلي)
 # ==============================
 @bot.message_handler(commands=['admin', 'start'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "🤖 أهلاً بك! هذا البوت مخصص لخدمة القناة.")
+        # رد للأعضاء العاديين
+        bot.reply_to(message, "🤖 هذا البوت مخصص لخدمة القناة فقط.")
         return
 
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    # الصف الأول
-    btn1 = types.InlineKeyboardButton("📤 رفع ملفات", callback_data="admin_upload")
-    btn2 = types.InlineKeyboardButton("✅ إنهاء وحفظ", callback_data="admin_done")
-    # الصف الثاني
-    btn3 = types.InlineKeyboardButton("📢 نشر بالقناة", callback_data="admin_post")
-    btn4 = types.InlineKeyboardButton("🗑️ حذف الملفات", callback_data="admin_clear")
-    # الصف الثالث
-    btn5 = types.InlineKeyboardButton("👥 ملف المتفاعلين", callback_data="admin_reactors")
-    btn6 = types.InlineKeyboardButton("📊 فحص المخزن", callback_data="admin_check")
+    # إنشاء الكيبورد السفلي (ReplyKeyboardMarkup)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
+    # تعريف الأزرار
+    btn1 = types.KeyboardButton("📤 رفع ملفات")
+    btn2 = types.KeyboardButton("✅ إنهاء وحفظ")
+    btn3 = types.KeyboardButton("📢 نشر بالقناة")
+    btn4 = types.KeyboardButton("🗑️ حذف الملفات")
+    btn5 = types.KeyboardButton("👥 ملف المتفاعلين")
+    btn6 = types.KeyboardButton("📊 فحص المخزن")
+    btn_close = types.KeyboardButton("❌ إخفاء اللوحة") # زر لإغلاق الكيبورد
+
+    # إضافة الأزرار للكيبورد
     markup.add(btn1, btn2)
     markup.add(btn3, btn4)
     markup.add(btn5, btn6)
+    markup.add(btn_close)
     
     status = "🟢 مفعل" if admin_upload_mode else "🔴 مغلق"
     files_count = len(stored_configs)
     
     msg = (
-        "👑 **لوحة تحكم الأدمن V4**\n\n"
+        "👑 **أهلاً بك في لوحة القيادة V5**\n\n"
         f"📂 الملفات الجاهزة: `{files_count}`\n"
         f"📡 وضع الرفع: {status}\n\n"
-        "تحكم بالبوت من الأزرار أدناه:"
+        "👇 **التحكم أصبح بالأسفل الآن:**"
     )
     bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
 
 # ==============================
-# 🕹️ معالج أزرار الأدمن
+# 🕹️ معالج الأزرار السفلية (Text Handler)
 # ==============================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
-def handle_admin_actions(call):
-    if call.from_user.id != ADMIN_ID: return
+@bot.message_handler(func=lambda message: message.text in [
+    "📤 رفع ملفات", "✅ إنهاء وحفظ", "📢 نشر بالقناة", 
+    "🗑️ حذف الملفات", "👥 ملف المتفاعلين", "📊 فحص المخزن", "❌ إخفاء اللوحة"
+])
+def handle_admin_buttons(message):
+    if message.from_user.id != ADMIN_ID: return
     
     global admin_upload_mode, stored_configs
-    action = call.data
+    action = message.text # النص المكتوب على الزر
     
-    if action == "admin_upload":
+    # 1. زر رفع الملفات
+    if action == "📤 رفع ملفات":
         admin_upload_mode = True
         stored_configs = [] 
         save_json(CONFIGS_FILE, stored_configs)
-        bot.edit_message_text("📂 **وضع الرفع مفعل!**\nأرسل الملفات الآن..", call.message.chat.id, call.message.message_id)
+        bot.reply_to(message, "📂 **تم تفعيل وضع الرفع!**\nقم بإرسال الملفات الآن واحداً تلو الآخر..")
         
-    elif action == "admin_done":
+    # 2. زر الإنهاء
+    elif action == "✅ إنهاء وحفظ":
         admin_upload_mode = False
-        bot.edit_message_text(f"✅ **تم الحفظ!** العدد: {len(stored_configs)}\nعد للقائمة /admin للنشر.", call.message.chat.id, call.message.message_id)
+        bot.reply_to(message, f"✅ **تم الحفظ بنجاح!**\nالعدد الكلي: {len(stored_configs)} ملف.")
 
-    elif action == "admin_clear":
+    # 3. زر الحذف
+    elif action == "🗑️ حذف الملفات":
         stored_configs = []
         save_json(CONFIGS_FILE, stored_configs)
-        bot.answer_callback_query(call.id, "🗑️ تم حذف جميع الملفات المحفوظة!", show_alert=True)
-        admin_panel(call.message) # تحديث اللوحة
+        bot.reply_to(message, "🗑️ تم تنظيف المخزن وحذف جميع الملفات!")
 
-    elif action == "admin_check":
-        bot.answer_callback_query(call.id, f"📂 الملفات الحالية: {len(stored_configs)}", show_alert=True)
+    # 4. زر الفحص
+    elif action == "📊 فحص المخزن":
+        bot.reply_to(message, f"📊 لديك حالياً **{len(stored_configs)}** ملف جاهز للنشر.")
 
-    elif action == "admin_reactors":
-        # تجميع المتفاعلين في ملف نصي
+    # 5. زر الإخفاء
+    elif action == "❌ إخفاء اللوحة":
+        # إزالة الكيبورد
+        hide_markup = types.ReplyKeyboardRemove()
+        bot.send_message(message.chat.id, "تم إخفاء اللوحة. اكتب /admin لإظهارها.", reply_markup=hide_markup)
+
+    # 6. زر المتفاعلين (تقرير txt)
+    elif action == "👥 ملف المتفاعلين":
         all_users = set()
         for msg_id in likes_data:
             for uid in likes_data[msg_id]:
                 all_users.add(uid)
         
         if not all_users:
-            bot.answer_callback_query(call.id, "⚠️ لا يوجد متفاعلين حتى الآن.", show_alert=True)
+            bot.reply_to(message, "⚠️ لا يوجد متفاعلين حتى الآن.")
             return
 
         report = f"📊 تقرير المتفاعلين (العدد: {len(all_users)})\n---------------------------\n"
         for uid in all_users:
             report += f"ID: {uid}\n"
         
-        # تحويل النص لملف وهمي للإرسال
         file_obj = io.BytesIO(report.encode())
         file_obj.name = "reactors_list.txt"
-        
-        bot.send_document(call.message.chat.id, file_obj, caption="👥 قائمة بجميع الآيديات التي تفاعلت.")
-        bot.answer_callback_query(call.id, "✅ تم إرسال الملف")
+        bot.send_document(message.chat.id, file_obj, caption="👥 تفضل قائمة المتفاعلين.")
 
-    elif action == "admin_post":
+    # 7. زر النشر بالقناة
+    elif action == "📢 نشر بالقناة":
         if not stored_configs:
-            bot.answer_callback_query(call.id, "⚠️ المخزن فارغ! ارفع ملفات أولاً.", show_alert=True)
+            bot.reply_to(message, "⚠️ المخزن فارغ! استخدم '📤 رفع ملفات' أولاً.")
             return
         
-        # جلب يوزر البوت لرابط التفعيل
         bot_user = bot.get_me().username
         
+        # أزرار القناة (تبقى Inline لأنها للمستخدمين)
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("❤️ اضغط للدعم (0)", callback_data="do_like"))
         markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
-        # الزر الجديد للتفعيل 👇
         markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت (اضغط هنا أولاً)", url=f"https://t.me/{bot_user}?start=channel"))
         
         msg_text = (
@@ -146,12 +159,12 @@ def handle_admin_actions(call):
             sent = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
             likes_data[str(sent.message_id)] = []
             save_json(LIKES_FILE, likes_data)
-            bot.answer_callback_query(call.id, "✅ تم النشر!")
+            bot.reply_to(message, "✅ **تم النشر في القناة بنجاح!**")
         except Exception as e:
-            bot.send_message(call.message.chat.id, f"❌ خطأ: {e}")
+            bot.reply_to(message, f"❌ خطأ في النشر: {e}")
 
 # ==============================
-# 📥 استقبال الملفات
+# 📥 استقبال الملفات (أثناء الرفع)
 # ==============================
 @bot.message_handler(content_types=['document'])
 def handle_docs(message):
@@ -159,10 +172,10 @@ def handle_docs(message):
     if admin_upload_mode:
         stored_configs.append(message.document.file_id)
         save_json(CONFIGS_FILE, stored_configs)
-        bot.reply_to(message, f"✅ تم الحفظ ({len(stored_configs)})")
+        bot.reply_to(message, f"✅ تم استلام الملف رقم {len(stored_configs)}")
 
 # ==============================
-# ❤️ معالجة تفاعل الأعضاء
+# ❤️ معالجة تفاعل الأعضاء (المنطق كما هو)
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "do_like")
 def user_like(call):
@@ -178,9 +191,6 @@ def user_like(call):
         likes_data[mid].append(uid)
         save_json(LIKES_FILE, likes_data)
         
-        # 🚫 تم حذف رسالة الإشعار للأدمن هنا (لمنع الإزعاج)
-
-        # تحديث العداد
         count = len(likes_data[mid])
         bot_user = bot.get_me().username
         
@@ -229,7 +239,7 @@ def send_files(uid):
 # ==============================
 app = Flask('')
 @app.route('/')
-def home(): return "<b>Ultimate Bot V4 Running...</b>"
+def home(): return "<b>Keyboard Bot V5 Running...</b>"
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
