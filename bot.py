@@ -3,346 +3,555 @@ from telebot import types
 from flask import Flask
 from threading import Thread
 import os
-import sqlite3
 import time
-import logging
+import traceback
 
-# ==============================
-# CONFIGURATION
-# ==============================
-TOKEN = "8579121219:AAHes3A9ELlqg9lKGXJUOM4_mVc7zQ7K5cc"   # ضع توكن البوت هنا
-ADMIN_ID = 7846022798           # ضع معرف الأدمن هنا
-CHANNEL_ID = -1003858414969     # ضع معرف القناة (مع العلامة السالبة)
-DB_NAME = "vpn_bot.db"
+from database import (
+    init_db, add_user, get_all_users, get_users_count,
+    mark_user_blocked, add_like, has_liked, get_likes_count,
+    get_all_likers, clear_likes, add_config, get_all_configs,
+    get_configs_count, clear_configs, save_message_history,
+    get_message_history, clear_message_history, add_post,
+    full_reset, get_stats
+)
 
-bot = telebot.TeleBot(TOKEN)
+# ══════════════════════════════════════════
+# ⚙️ CONFIGURATION (من Environment Variables)
+# ══════════════════════════════════════════
+TOKEN      = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+ADMIN_ID   = int(os.environ.get("ADMIN_ID", "7846022798"))
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))
 
-# Runtime Modes
+bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
+
+# ─── Runtime State ───
 admin_upload_mode = False
+last_upload_msg_id = None
 broadcast_mode = False
-last_status_msg_id = None
+cooldown_tracker = {}
+COOLDOWN_SECONDS = 3
 
-# ==============================
-# DATABASE MANAGER (SQLite)
-# ==============================
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    # جدول المستخدمين (للإذاعة والتتبع)
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-                 user_id INTEGER PRIMARY KEY,
-                 username TEXT,
-                 first_name TEXT,
-                 join_date TEXT
-                 )''')
-    # جدول الملفات (الكونفيجات)
-    c.execute('''CREATE TABLE IF NOT EXISTS configs (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 file_id TEXT,
-                 upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                 )''')
-    # جدول التفاعلات (لايكات القنوات)
-    c.execute('''CREATE TABLE IF NOT EXISTS likes (
-                 post_message_id INTEGER,
-                 user_id INTEGER,
-                 username TEXT,
-                 PRIMARY KEY (post_message_id, user_id)
-                 )''')
-    # جدول سجل الرسائل (للمسح الذكي)
-    c.execute('''CREATE TABLE IF NOT EXISTS history (
-                 user_id INTEGER,
-                 message_id INTEGER,
-                 PRIMARY KEY (user_id, message_id)
-                 )''')
-    conn.commit()
-    conn.close()
 
-def execute_query(query, data=(), fetch="none", commit=False):
-    """دالة مساعدة للتعامل مع قاعدة البيانات بأمان"""
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    try:
-        c.execute(query, data)
-        if commit: conn.commit()
-        if fetch == "all": return c.fetchall()
-        elif fetch == "one": return c.fetchone()
-        return None
-    except Exception as e:
-        logging.error(f"DB Error: {e}")
-        return None
-    finally:
-        conn.close()
+# ══════════════════════════════════════════
+# 🛡️ HELPERS
+# ══════════════════════════════════════════
 
-# تشغيل قاعدة البيانات عند البدء
-init_db()
+def is_admin(uid):
+    return uid == ADMIN_ID
 
-# ==============================
-# ADMIN PANEL
-# ==============================
-@bot.message_handler(commands=['admin', 'start'])
-def admin_panel(message):
-    # تسجيل المستخدم في قاعدة البيانات عند البدء
-    uid = message.from_user.id
-    uname = message.from_user.username or "Unknown"
-    fname = message.from_user.first_name or "User"
-    execute_query("INSERT OR IGNORE INTO users (user_id, username, first_name, join_date) VALUES (?, ?, ?, datetime('now'))", 
-                  (uid, uname, fname), commit=True)
 
-    if message.from_user.id != ADMIN_ID: 
-        # رسالة ترحيبية للمستخدمين العاديين
-        bot.reply_to(message, "أهلاً بك في بوت الكونفيجات!\nتابع قناتنا للحصول على أحدث الملفات.")
+def check_cooldown(uid):
+    """حماية من السبام"""
+    now = time.time()
+    if now - cooldown_tracker.get(uid, 0) < COOLDOWN_SECONDS:
+        return False
+    cooldown_tracker[uid] = now
+    return True
+
+
+def display_name(user):
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name or "Unknown"
+
+
+def channel_markup(msg_id=None):
+    """أزرار بوست القناة"""
+    bot_user = bot.get_me().username
+    count = get_likes_count(msg_id) if msg_id else 0
+
+    mk = types.InlineKeyboardMarkup(row_width=1)
+    mk.add(types.InlineKeyboardButton(
+        f"❤️ اضغط للدعم ({count})", callback_data="do_like"
+    ))
+    mk.add(types.InlineKeyboardButton(
+        "📥 استلام الكونفيجات", callback_data="get_file"
+    ))
+    mk.add(types.InlineKeyboardButton(
+        "🤖 فعّل البوت أولاً", url=f"https://t.me/{bot_user}?start=channel"
+    ))
+    return mk
+
+
+def admin_markup():
+    """لوحة تحكم الأدمن"""
+    mk = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    mk.add(
+        types.KeyboardButton("📤 رفع ملفات"),
+        types.KeyboardButton("✅ إنهاء وحفظ")
+    )
+    mk.add(
+        types.KeyboardButton("📢 نشر بالقناة"),
+        types.KeyboardButton("🗑️ حذف الملفات")
+    )
+    mk.add(
+        types.KeyboardButton("👥 المتفاعلين"),
+        types.KeyboardButton("📊 الإحصائيات")
+    )
+    mk.add(
+        types.KeyboardButton("📣 إذاعة جماعية"),
+        types.KeyboardButton("🔄 تصفير شامل")
+    )
+    mk.add(types.KeyboardButton("❌ إخفاء اللوحة"))
+    return mk
+
+
+# ══════════════════════════════════════════
+# 🚀 START
+# ══════════════════════════════════════════
+
+@bot.message_handler(commands=["start"])
+def cmd_start(message):
+    u = message.from_user
+    add_user(u.id, u.username, u.first_name)
+
+    if is_admin(u.id):
+        show_panel(message)
         return
 
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    btns = [
-        "📤 رفع ملفات", "✅ إنهاء وحفظ",
-        "📢 نشر بالقناة", "📣 إذاعة للجميع",
-        "🗑️ حذف الملفات", "👥 المتفاعلين",
-        "❌ إخفاء اللوحة"
-    ]
-    markup.add(*[types.KeyboardButton(b) for b in btns])
+    bot.send_message(message.chat.id,
+        f"مرحباً {u.first_name}! 👋\n\n"
+        "🔹 هذا البوت يوزع كونفيجات VPN\n"
+        "🔹 تابع القناة واضغط ❤️\n"
+        "🔹 ثم اضغط 📥 لاستلام الملفات\n\n"
+        "✅ تم تفعيل البوت!"
+    )
 
-    # جلب عدد الملفات
-    configs_count = execute_query("SELECT COUNT(*) FROM configs", fetch="one")[0]
-    status_upload = "🟢 مفعل" if admin_upload_mode else "🔴 مغلق"
-    status_bc = "🟢 مفعل" if broadcast_mode else "🔴 مغلق"
 
-    msg = f"👑 **Admin Panel V12 (SQLite)**\n" \
-          f"💾 Database: Secure\n" \
-          f"📂 Files: `{configs_count}`\n" \
-          f"📡 Upload: {status_upload}\n" \
-          f"📣 Broadcast: {status_bc}"
-    
-    bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
+@bot.message_handler(commands=["admin"])
+def cmd_admin(message):
+    if is_admin(message.from_user.id):
+        show_panel(message)
 
-# ==============================
-# ADMIN ACTIONS & BROADCAST
-# ==============================
-@bot.message_handler(func=lambda m: m.text in [
-    "📤 رفع ملفات", "✅ إنهاء وحفظ", "📢 نشر بالقناة", 
-    "🗑️ حذف الملفات", "👥 المتفاعلين", "❌ إخفاء اللوحة", "📣 إذاعة للجميع"
-])
+
+def show_panel(message):
+    s = get_stats()
+    up = "🟢" if admin_upload_mode else "🔴"
+    bc = "🟢" if broadcast_mode else "🔴"
+
+    bot.send_message(message.chat.id,
+        "👑 *Admin Panel V12*\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"📂 Files: `{s['configs']}`\n"
+        f"👥 Users: `{s['active_users']}` / `{s['total_users']}`\n"
+        f"❤️ Likers: `{s['unique_likers']}`\n"
+        f"📡 Upload: {up}  |  📣 Broadcast: {bc}\n"
+        "━━━━━━━━━━━━━━━\n"
+        "🗄️ MongoDB Atlas | Smart Delete",
+        reply_markup=admin_markup()
+    )
+
+
+# ══════════════════════════════════════════
+# 🎛️ ADMIN BUTTONS
+# ══════════════════════════════════════════
+
+BUTTONS = [
+    "📤 رفع ملفات", "✅ إنهاء وحفظ", "📢 نشر بالقناة",
+    "🗑️ حذف الملفات", "👥 المتفاعلين", "📊 الإحصائيات",
+    "📣 إذاعة جماعية", "🔄 تصفير شامل", "❌ إخفاء اللوحة",
+    "✅ تأكيد التصفير", "❌ إلغاء التصفير"
+]
+
+
+@bot.message_handler(func=lambda m: m.text in BUTTONS)
 def handle_buttons(message):
-    if message.from_user.id != ADMIN_ID: return
-    global admin_upload_mode, broadcast_mode, last_status_msg_id
-    action = message.text
-    
-    if action == "📤 رفع ملفات":
-        admin_upload_mode = True
-        execute_query("DELETE FROM configs", commit=True) # تنظيف القديم عند رفع دفعة جديدة
-        s = bot.reply_to(message, "📂 **Upload Mode ON**\nالعدد الحالي: 0", parse_mode="Markdown")
-        last_status_msg_id = s.message_id
-        
-    elif action == "✅ إنهاء وحفظ":
-        admin_upload_mode = False
-        last_status_msg_id = None
-        count = execute_query("SELECT COUNT(*) FROM configs", fetch="one")[0]
-        bot.reply_to(message, f"✅ **تم الحفظ!**\nعدد الملفات: {count}")
-
-    elif action == "📣 إذاعة للجميع":
-        broadcast_mode = not broadcast_mode # Toggle
-        status = "مفعل" if broadcast_mode else "مغلق"
-        bot.reply_to(message, f"📣 وضع الإذاعة: {status}\nأرسل الرسالة الآن إذا كان مفعل.")
-
-    elif action == "🗑️ حذف الملفات":
-        execute_query("DELETE FROM configs", commit=True)
-        bot.reply_to(message, "🗑️ تم حذف جميع الملفات من المخزن.")
-
-    elif action == "👥 المتفاعلين":
-        # جلب المستخدمين المميزين (من جدول likes)
-        liked_users = execute_query("SELECT DISTINCT username FROM likes", fetch="all")
-        liked_users = [u[0] if u[0] else "Anonymous" for u in liked_users]
-        unique_users = list(set(liked_users))
-        
-        if not unique_users:
-            bot.reply_to(message, "⚠️ لا يوجد تفاعلات حتى الآن.")
-        else:
-            txt = f"👥 **المتفاعلون ({len(unique_users)}):**\n" + "\n".join([f"- {u}" for u in unique_users])
-            bot.reply_to(message, txt[:4090]) # حدود تيليجرام
-
-    elif action == "📢 نشر بالقناة":
-        configs = execute_query("SELECT file_id FROM configs", fetch="all")
-        if not configs:
-            bot.reply_to(message, "⚠️ لا توجد ملفات للنشر!")
-            return
-        
-        bot_user = bot.get_me().username
-        markup = types.InlineKeyboardMarkup()
-        
-        # التحقق من عدد اللايكات الحقيقي (هنا سنعرض 0 لأن المنشور جديد)
-        markup.add(types.InlineKeyboardButton("❤️ اضغط للدعم (0)", callback_data="do_like"))
-        markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
-        markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت", url=f"https://t.me/{bot_user}?start=channel"))
-        
-        msg_text = (
-            "🔥 **تحديث جديد: كونفيجات سريعة!** 🚀\n\n"
-            "⚡️ سرعة عالية\n"
-            "🔓 غير محدود\n\n"
-            "⚠️ **خطوات الحصول عليها:**\n1. اضغط تفعيل البوت (🤖).\n2. اضغط زر الدعم (❤️).\n3. اضغط استلام (📥)."
-        )
-        try:
-            sent = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
-            # لا نحتاج لإضافة سجل في likes للمنشور لأن المستخدمين سيضيفونه عند التفاعل
-            bot.reply_to(message, "✅ تم النشر في القناة!")
-        except Exception as e:
-            bot.reply_to(message, f"❌ خطأ: {e}")
-
-    elif action == "❌ إخفاء اللوحة":
-        bot.send_message(message.chat.id, "Panel Hidden.", reply_markup=types.ReplyKeyboardRemove())
-
-# ==============================
-# FILE UPLOAD & BROADCAST HANDLER
-# ==============================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'voice'])
-def handle_content(message):
-    if message.from_user.id != ADMIN_ID: return
-    global admin_upload_mode, last_status_msg_id
-
-    # 1. معالجة الإذاعة (Broadcast)
-    if broadcast_mode:
-        users = execute_query("SELECT user_id FROM users", fetch="all")
-        success = 0
-        failed = 0
-        for user in users:
-            try:
-                if message.text:
-                    bot.send_message(user[0], message.text)
-                elif message.photo:
-                    bot.send_photo(user[0], message.photo[-1].file_id, caption=message.caption)
-                elif message.document:
-                    bot.send_document(user[0], message.document.file_id, caption=message.caption)
-                success += 1
-                time.sleep(0.05) # تأخير بسيط لتجنب الحظر
-            except:
-                failed += 1
-        broadcast_mode = False
-        bot.reply_to(message, f"✅ **تم الإذاعة**\n✅ تم الإرسال: {success}\n❌ فشل: {failed}")
+    if not is_admin(message.from_user.id):
         return
 
-    # 2. معالجة رفع الملفات
-    if message.content_type == 'document' and admin_upload_mode:
-        file_id = message.document.file_id
-        execute_query("INSERT INTO configs (file_id) VALUES (?)", (file_id,), commit=True)
-        
-        # تحديث رسالة العداد
-        count = execute_query("SELECT COUNT(*) FROM configs", fetch="one")[0]
-        text = f"📂 **Uploading...**\nCounter: {count} ✅"
-        try:
-            if last_status_msg_id:
-                bot.edit_message_text(text, message.chat.id, last_status_msg_id)
-            else:
-                s = bot.send_message(message.chat.id, text, parse_mode="Markdown")
-                last_status_msg_id = s.message_id
-        except:
-            pass
+    global admin_upload_mode, last_upload_msg_id, broadcast_mode
+    act = message.text
 
-# ==============================
-# FAKE REACTION HANDLER (SQLite)
-# ==============================
-@bot.callback_query_handler(func=lambda call: call.data == "do_like")
-def user_like(call):
+    # ── 📤 رفع ملفات ──
+    if act == "📤 رفع ملفات":
+        admin_upload_mode = True
+        clear_configs()
+        s = bot.reply_to(message, "📂 *Upload Mode: ON*\n🔢 Counter: 0")
+        last_upload_msg_id = s.message_id
+
+    # ── ✅ إنهاء وحفظ ──
+    elif act == "✅ إنهاء وحفظ":
+        admin_upload_mode = False
+        broadcast_mode = False
+        last_upload_msg_id = None
+        bot.reply_to(message,
+            f"✅ *Saved!*\n📂 Total: `{get_configs_count()}`"
+        )
+
+    # ── 🗑️ حذف الملفات ──
+    elif act == "🗑️ حذف الملفات":
+        clear_configs()
+        bot.reply_to(message, "🗑️ All configs deleted.")
+
+    # ── 📊 الإحصائيات ──
+    elif act == "📊 الإحصائيات":
+        s = get_stats()
+        bot.reply_to(message,
+            "📊 *Statistics*\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"👥 Total Users: `{s['total_users']}`\n"
+            f"✅ Active: `{s['active_users']}`\n"
+            f"🚫 Blocked: `{s['blocked_users']}`\n"
+            f"📂 Configs: `{s['configs']}`\n"
+            f"❤️ Likers: `{s['unique_likers']}`"
+        )
+
+    # ── 👥 المتفاعلين ──
+    elif act == "👥 المتفاعلين":
+        likers = get_all_likers()
+        if not likers:
+            bot.reply_to(message, "⚠️ No interactions yet.")
+        else:
+            names = list(set(u["name"] for u in likers))
+            txt = f"👥 *Likers ({len(names)}):*\n"
+            txt += "\n".join(f"  • {n}" for n in names[:50])
+            if len(names) > 50:
+                txt += f"\n... +{len(names)-50} more"
+            bot.reply_to(message, txt[:4000])
+
+    # ── 📢 نشر بالقناة ──
+    elif act == "📢 نشر بالقناة":
+        configs = get_all_configs()
+        if not configs:
+            bot.reply_to(message, "⚠️ No files! Upload first.")
+            return
+
+        text = (
+            "🔥 *كونفيجات جديدة!* 🚀\n\n"
+            f"📂 عدد الملفات: `{len(configs)}`\n"
+            "⚡️ سرعة عالية | 🔓 غير محدود\n\n"
+            "⚠️ *الخطوات:*\n"
+            "1️⃣ فعّل البوت 🤖\n"
+            "2️⃣ اضغط لايك ❤️\n"
+            "3️⃣ استلم الملفات 📥"
+        )
+
+        try:
+            mk = channel_markup(None)
+            sent = bot.send_message(CHANNEL_ID, text,
+                parse_mode="Markdown", reply_markup=mk)
+            add_post(sent.message_id)
+
+            # تحديث العداد
+            bot.edit_message_reply_markup(
+                CHANNEL_ID, sent.message_id,
+                reply_markup=channel_markup(sent.message_id)
+            )
+            bot.reply_to(message, "✅ *Posted!*")
+        except Exception as e:
+            bot.reply_to(message, f"❌ Error:\n`{e}`")
+
+    # ── 📣 إذاعة جماعية ──
+    elif act == "📣 إذاعة جماعية":
+        broadcast_mode = True
+        bot.reply_to(message,
+            "📣 *Broadcast Mode: ON*\n\n"
+            "أرسل الرسالة الآن (نص/صورة/ملف/فيديو)\n\n"
+            "اضغط *✅ إنهاء وحفظ* للإلغاء"
+        )
+
+    # ── 🔄 تصفير شامل ──
+    elif act == "🔄 تصفير شامل":
+        mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        mk.add(
+            types.KeyboardButton("✅ تأكيد التصفير"),
+            types.KeyboardButton("❌ إلغاء التصفير")
+        )
+        bot.send_message(message.chat.id,
+            "⚠️ *متأكد؟*\nسيتم حذف: لايكات + ملفات + سجل رسائل\n"
+            "(المستخدمين لن يُحذفوا)",
+            reply_markup=mk
+        )
+
+    elif act == "✅ تأكيد التصفير":
+        full_reset()
+        bot.send_message(message.chat.id,
+            "🔄 *Reset Done!*",
+            reply_markup=admin_markup()
+        )
+
+    elif act == "❌ إلغاء التصفير":
+        bot.send_message(message.chat.id,
+            "❌ Cancelled.",
+            reply_markup=admin_markup()
+        )
+
+    # ── ❌ إخفاء ──
+    elif act == "❌ إخفاء اللوحة":
+        bot.send_message(message.chat.id,
+            "🔒 Hidden. /admin to reopen.",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+
+
+# ══════════════════════════════════════════
+# 📣 BROADCAST
+# ══════════════════════════════════════════
+
+@bot.message_handler(
+    func=lambda m: broadcast_mode and is_admin(m.from_user.id),
+    content_types=["text","photo","document","video","audio","sticker"]
+)
+def do_broadcast(message):
+    global broadcast_mode
+
+    if message.text and message.text in BUTTONS:
+        return
+
+    broadcast_mode = False
+    users = get_all_users()
+
+    if not users:
+        bot.reply_to(message, "⚠️ No users!")
+        return
+
+    st = bot.reply_to(message,
+        f"📣 *Broadcasting to {len(users)} users...*"
+    )
+
+    ok = fail = block = 0
+
+    for uid in users:
+        try:
+            bot.forward_message(uid, message.chat.id, message.message_id)
+            ok += 1
+            time.sleep(0.05)
+        except telebot.apihelper.ApiTelegramException as e:
+            err = str(e).lower()
+            if "blocked" in err or "deactivated" in err:
+                mark_user_blocked(uid)
+                block += 1
+            else:
+                fail += 1
+        except:
+            fail += 1
+
+    try:
+        bot.edit_message_text(
+            f"📣 *Broadcast Done!*\n"
+            f"✅ Sent: `{ok}`\n"
+            f"🚫 Blocked: `{block}`\n"
+            f"❌ Failed: `{fail}`",
+            message.chat.id, st.message_id,
+            parse_mode="Markdown"
+        )
+    except:
+        bot.send_message(message.chat.id,
+            f"✅ {ok} | 🚫 {block} | ❌ {fail}")
+
+
+# ══════════════════════════════════════════
+# 📂 UPLOAD
+# ══════════════════════════════════════════
+
+@bot.message_handler(content_types=["document"])
+def handle_doc(message):
+    if not is_admin(message.from_user.id):
+        return
+    global last_upload_msg_id
+
+    if not admin_upload_mode:
+        bot.reply_to(message, "⚠️ Upload OFF. Press 📤 first.")
+        return
+
+    add_config(message.document.file_id)
+    cnt = get_configs_count()
+    text = f"📂 *Uploading...*\n🔢 Counter: `{cnt}` ✅"
+
+    try:
+        if last_upload_msg_id:
+            bot.edit_message_text(text, message.chat.id,
+                last_upload_msg_id, parse_mode="Markdown")
+        else:
+            s = bot.send_message(message.chat.id, text)
+            last_upload_msg_id = s.message_id
+    except:
+        s = bot.send_message(message.chat.id, text)
+        last_upload_msg_id = s.message_id
+
+
+# ══════════════════════════════════════════
+# ❤️ LIKE
+# ══════════════════════════════════════════
+
+@bot.callback_query_handler(func=lambda c: c.data == "do_like")
+def handle_like(call):
     try:
         uid = call.from_user.id
         mid = call.message.message_id
-        uname = f"@{call.from_user.username}" if call.from_user.username else call.from_user.first_name
-        
-        # محاولة الإدراج (إذا كان موجوداً سيفشل بسبب PRIMARY KEY)
-        try:
-            execute_query("INSERT INTO likes (post_message_id, user_id, username) VALUES (?, ?, ?)", 
-                          (mid, uid, uname), commit=True)
-            
-            # نجاح اللايك
-            cnt = execute_query("SELECT COUNT(*) FROM likes WHERE post_message_id = ?", (mid,), fetch="one")[0]
-            
-            bot_user = bot.get_me().username
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton(f"❤️ اضغط للدعم ({cnt})", callback_data="do_like"))
-            markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
-            markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت", url=f"https://t.me/{bot_user}?start=channel"))
-            
-            bot.edit_message_reply_markup(call.message.chat.id, mid, reply_markup=markup)
-            bot.answer_callback_query(call.id, "✅ شكراً لدعمك!")
-        except sqlite3.IntegrityError:
-            # المستخدم قد ضغط لايك من قبل
-            bot.answer_callback_query(call.id, "⚠️ لقد قمت بالدعم مسبقاً!", show_alert=True)
-            
-    except Exception as e:
-        logging.error(f"Like Error: {e}")
+        name = display_name(call.from_user)
 
-# ==============================
-# DELIVERY & CLEANING SYSTEM (SQLite)
-# ==============================
-@bot.callback_query_handler(func=lambda call: call.data == "get_file")
-def deliver_files(call):
+        if not check_cooldown(uid):
+            bot.answer_callback_query(call.id, "⏳ انتظر...")
+            return
+
+        is_new = add_like(uid, mid, name)
+
+        if not is_new:
+            bot.answer_callback_query(call.id,
+                "⚠️ سبق أن دعمت! ❤️", show_alert=True)
+            return
+
+        try:
+            bot.edit_message_reply_markup(
+                call.message.chat.id, mid,
+                reply_markup=channel_markup(mid)
+            )
+        except:
+            pass
+
+        bot.answer_callback_query(call.id, "✅ شكراً لدعمك! ❤️")
+
+    except Exception as e:
+        print(f"Like Error: {e}")
+        bot.answer_callback_query(call.id, "❌ خطأ")
+
+
+# ══════════════════════════════════════════
+# 📥 DELIVERY + SMART CLEAN
+# ══════════════════════════════════════════
+
+@bot.callback_query_handler(func=lambda c: c.data == "get_file")
+def handle_delivery(call):
     uid = call.from_user.id
     mid = call.message.message_id
-    
-    # تجاوز الأدمن
-    if uid == ADMIN_ID:
-        smart_clean_send(uid)
-        bot.answer_callback_query(call.id, "👑 Admin Access", show_alert=False)
+
+    if not check_cooldown(uid):
+        bot.answer_callback_query(call.id, "⏳ انتظر...")
         return
 
-    # التحقق من التفاعل (لايك)
-    check = execute_query("SELECT * FROM likes WHERE post_message_id = ? AND user_id = ?", (mid, uid), fetch="one")
-    
-    if check:
+    # أدمن
+    if is_admin(uid):
         try:
-            smart_clean_send(uid)
-            bot.answer_callback_query(call.id, "✅ Files Sent!", show_alert=False)
+            smart_send(uid)
+            bot.answer_callback_query(call.id, "👑 Admin")
         except Exception as e:
-            bot.answer_callback_query(call.id, "❌ ابدأ البوت أولاً (Start)!", show_alert=True)
-    else:
-        bot.answer_callback_query(call.id, "⛔ يجب الضغط على زر الدعم (❤️) أولاً!", show_alert=True)
-
-def smart_clean_send(user_id):
-    # 1. حذف الرسائل القديمة
-    old_msgs = execute_query("SELECT message_id FROM history WHERE user_id = ?", (user_id,), fetch="all")
-    if old_msgs:
-        for msg in old_msgs:
-            try:
-                bot.delete_message(user_id, msg[0])
-            except: pass
-        # حذف السجل القديم
-        execute_query("DELETE FROM history WHERE user_id = ?", (user_id,), commit=True)
-    
-    # 2. إرسال الملفات الجديدة
-    configs = execute_query("SELECT file_id FROM configs", fetch="all")
-    new_msg_ids = []
-    
-    if not configs:
-        m = bot.send_message(user_id, "⚠️ لا توجد ملفات متاحة حالياً.")
-        execute_query("INSERT INTO history (user_id, message_id) VALUES (?, ?)", (user_id, m.message_id), commit=True)
+            bot.answer_callback_query(call.id,
+                f"❌ {str(e)[:80]}", show_alert=True)
         return
 
-    m1 = bot.send_message(user_id, "✨ **New Configs:**", parse_mode="Markdown")
-    new_msg_ids.append(m1.message_id)
-    
-    for config in configs:
-        fid = config[0]
-        m_doc = bot.send_document(user_id, fid)
-        new_msg_ids.append(m_doc.message_id)
-        
-    # 3. حفظ السجل الجديد
-    for mid in new_msg_ids:
-        execute_query("INSERT INTO history (user_id, message_id) VALUES (?, ?)", (user_id, mid), commit=True)
+    # تحقق لايك
+    if not has_liked(uid, mid):
+        bot.answer_callback_query(call.id,
+            "⛔ اضغط ❤️ للدعم أولاً!", show_alert=True)
+        return
 
-# ==============================
-# SERVER & KEEP ALIVE
-# ==============================
-app = Flask('')
-@app.route('/')
-def home(): return "<b>Bot V12 (SQLite) Running...</b>"
+    # إرسال
+    try:
+        smart_send(uid)
+        bot.answer_callback_query(call.id, "✅ تم الإرسال!")
+    except telebot.apihelper.ApiTelegramException as e:
+        err = str(e).lower()
+        if "blocked" in err or "chat not found" in err:
+            bot.answer_callback_query(call.id,
+                "❌ فعّل البوت أولاً! اضغط 🤖", show_alert=True)
+        else:
+            bot.answer_callback_query(call.id,
+                "❌ خطأ، حاول مرة أخرى", show_alert=True)
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+
+def smart_send(user_id):
+    """حذف القديم → إرسال الجديد → حفظ السجل"""
+
+    # 1️⃣ حذف القديم
+    old = get_message_history(user_id)
+    for mid in old:
+        try:
+            bot.delete_message(user_id, mid)
+        except:
+            pass
+    clear_message_history(user_id)
+
+    # 2️⃣ جلب الملفات
+    configs = get_all_configs()
+    if not configs:
+        m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
+        save_message_history(user_id, [m.message_id])
+        return
+
+    # 3️⃣ إرسال
+    ids = []
+
+    h = bot.send_message(user_id,
+        f"✨ *كونفيجاتك ({len(configs)} ملفات):*")
+    ids.append(h.message_id)
+
+    for fid in configs:
+        try:
+            d = bot.send_document(user_id, fid)
+            ids.append(d.message_id)
+        except Exception as e:
+            print(f"Send error {user_id}: {e}")
+
+    f = bot.send_message(user_id,
+        "━━━━━━━━━━━━━━━\n"
+        "✅ تم!\n"
+        "🔄 ستُحذف تلقائياً عند توفر ملفات جديدة")
+    ids.append(f.message_id)
+
+    # 4️⃣ حفظ السجل
+    save_message_history(user_id, ids)
+
+
+# ══════════════════════════════════════════
+# 🌐 FLASK
+# ══════════════════════════════════════════
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    try:
+        s = get_stats()
+        return (
+            f"<h2>🤖 Bot V12 Running</h2>"
+            f"<p>👥 {s['total_users']} users | "
+            f"📂 {s['configs']} configs | "
+            f"❤️ {s['unique_likers']} likers</p>"
+        )
+    except:
+        return "Bot Running"
+
+
+@app.route("/health")
+def health():
+    return "OK", 200
+
 
 def keep_alive():
-    t = Thread(target=run_web_server)
-    t.start()
+    port = int(os.environ.get("PORT", 8080))
+    Thread(
+        target=lambda: app.run(host="0.0.0.0", port=port),
+        daemon=True
+    ).start()
+
+
+# ══════════════════════════════════════════
+# 🚀 MAIN
+# ══════════════════════════════════════════
 
 if __name__ == "__main__":
+    print("🔧 Connecting to MongoDB...")
+    init_db()
+
+    print("🌐 Starting web server...")
     keep_alive()
-    logging.basicConfig(level=logging.INFO)
-    bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=40)
+
+    print("🤖 Bot V12 starting...")
+    print(f"👑 Admin: {ADMIN_ID}")
+    print(f"📢 Channel: {CHANNEL_ID}")
+
+    while True:
+        try:
+            bot.infinity_polling(
+                skip_pending=True,
+                timeout=20,
+                long_polling_timeout=40,
+                allowed_updates=["message", "callback_query"]
+            )
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            traceback.print_exc()
+            time.sleep(5)
+            print("🔄 Restarting...")
