@@ -9,7 +9,7 @@ import time
 # ==========================================
 # ⚙️ الإعدادات (تأكد من التوكن والآيدي الخاص بك)
 # ==========================================
-TOKEN = "8579121219:AAHhAsbZBXp0DtSY6KyOhSrbLEFrucarYR8"   # ⚠️ ضع التوكن هنا
+TOKEN = "8579121219:AAGToVW-2OrOzwd_Tf4_RkBm166IJAz1O9Q"   # ⚠️ ضع التوكن هنا
 ADMIN_ID = 7846022798           # آيدي الأدمن (أنت)
 FILE_LINK = "https://t.me/AymenOxel"
 DATA_FILE = "reactions_db.json"
@@ -142,4 +142,5 @@ if __name__ == "__main__":
     try: bot.remove_webhook(); time.sleep(1)
     except: pass
     bot.infinity_polling(skip_pending=True)
+
 
