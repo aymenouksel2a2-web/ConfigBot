@@ -161,7 +161,7 @@ def channel_markup(msg_id=None):
     dl = get_post_downloads(msg_id) if msg_id else 0
     mk = types.InlineKeyboardMarkup(row_width=2)
     mk.row(
-        types.InlineKeyboardButton(f"❤️ دعم ({likes})", callback_data="do_like"),
+        types.InlineKeyboardButton(f"❤️ تفاعل ({likes})", callback_data="do_like"),
         types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file"))
     mk.add(types.InlineKeyboardButton(
         "🤖 فعّل البوت أولاً",
@@ -909,3 +909,4 @@ if __name__ == "__main__":
             time.sleep(5)
         else:
             consecutive_409 = 0
+
