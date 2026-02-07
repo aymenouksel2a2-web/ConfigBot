@@ -9,38 +9,43 @@ import time
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAFmyhB8AdA4ZSMXKFD4h-UOmErycgClVr0"   # ⚠️ ضع التوكن
+TOKEN = "8579121219:AAGm7ybs8wAdRo40-Irv9nkAw-ycV6zvXGQ"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
-LIKES_FILE = "likes_users_db.json"
-CONFIGS_FILE = "configs_db.json"
+
+# ملفات التخزين
+LIKES_FILE = "likes.json"
+CONFIGS_FILE = "configs.json"
+HISTORY_FILE = "history.json"   # 👈 هذا هو الملف الأهم للحذف
 
 bot = telebot.TeleBot(TOKEN)
 
-# متغيرات التشغيل
+# متغيرات
 admin_upload_mode = False
 last_upload_msg_id = None
 
 # ==============================
-# 💾 قاعدة البيانات
+# 💾 دوال قاعدة البيانات (حفظ وتحميل)
 # ==============================
-def load_json(filename):
+def load_db(filename):
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f: return json.load(f)
         except: return {} if filename != CONFIGS_FILE else []
     return {} if filename != CONFIGS_FILE else []
 
-def save_json(filename, data):
+def save_db(filename, data):
     try:
         with open(filename, "w") as f: json.dump(data, f)
     except: pass
 
-likes_data = load_json(LIKES_FILE)
-stored_configs = load_json(CONFIGS_FILE)
+# تحميل البيانات عند التشغيل
+likes_db = load_db(LIKES_FILE)
+configs_db = load_db(CONFIGS_FILE)
+history_db = load_db(HISTORY_FILE) # { "user_id": [msg_id1, msg_id2, ...] }
 
 # ==============================
-# 🎮 لوحة التحكم
+# 🎮 لوحة تحكم الأدمن
 # ==============================
 @bot.message_handler(commands=['admin', 'start'])
 def admin_panel(message):
@@ -53,7 +58,7 @@ def admin_panel(message):
     markup.add(types.KeyboardButton("❌ إخفاء اللوحة"))
 
     status = "🟢 مفعل" if admin_upload_mode else "🔴 مغلق"
-    msg = f"👑 **لوحة الأدمن V10**\n✨ ميزة التنظيف العمياء مفعلة\n📂 الملفات: `{len(stored_configs)}`\n📡 الرفع: {status}"
+    msg = f"👑 **لوحة الأدمن V11**\n🛡️ نظام الحذف الدائم مفعل\n📂 الملفات: `{len(configs_db)}`\n📡 الرفع: {status}"
     bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
 
 # ==============================
@@ -66,33 +71,33 @@ def admin_panel(message):
 def handle_buttons(message):
     if message.from_user.id != ADMIN_ID: return
     
-    global admin_upload_mode, stored_configs, likes_data, last_upload_msg_id
+    global admin_upload_mode, configs_db, likes_db, last_upload_msg_id
     action = message.text
     
     if action == "📤 رفع ملفات":
         admin_upload_mode = True
-        stored_configs = [] 
-        save_json(CONFIGS_FILE, stored_configs)
-        sent = bot.reply_to(message, "📂 **وضع الرفع مفعل!**\nالعداد: 0")
-        last_upload_msg_id = sent.message_id
+        configs_db = [] 
+        save_db(CONFIGS_FILE, configs_db)
+        s = bot.reply_to(message, "📂 **وضع الرفع مفعل!**\nالعداد: 0")
+        last_upload_msg_id = s.message_id
         
     elif action == "✅ إنهاء وحفظ":
         admin_upload_mode = False
         last_upload_msg_id = None
-        bot.reply_to(message, f"✅ **تم الحفظ!** العدد: {len(stored_configs)}")
+        bot.reply_to(message, f"✅ **تم الحفظ!** العدد: {len(configs_db)}")
 
     elif action == "🗑️ حذف الملفات":
-        stored_configs = []
-        save_json(CONFIGS_FILE, stored_configs)
+        configs_db = []
+        save_db(CONFIGS_FILE, configs_db)
         bot.reply_to(message, "🗑️ تم حذف الملفات.")
 
     elif action == "📊 فحص المخزن":
-        bot.reply_to(message, f"📊 لديك **{len(stored_configs)}** ملف.")
+        bot.reply_to(message, f"📊 لديك **{len(configs_db)}** ملف.")
 
     elif action == "👥 المتفاعلين":
         users = []
-        for mid in likes_data:
-            for u in likes_data[mid]:
+        for mid in likes_db:
+            for u in likes_db[mid]:
                 if isinstance(u, dict): users.append(u.get('name', 'Unknown'))
         users = list(set(users))
         if not users: bot.reply_to(message, "⚠️ لا يوجد.")
@@ -101,7 +106,7 @@ def handle_buttons(message):
             bot.reply_to(message, txt[:4000])
 
     elif action == "📢 نشر بالقناة":
-        if not stored_configs:
+        if not configs_db:
             bot.reply_to(message, "⚠️ المخزن فارغ!")
             return
         
@@ -119,8 +124,8 @@ def handle_buttons(message):
         )
         try:
             sent = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
-            likes_data[str(sent.message_id)] = []
-            save_json(LIKES_FILE, likes_data)
+            likes_db[str(sent.message_id)] = []
+            save_db(LIKES_FILE, likes_db)
             bot.reply_to(message, "✅ **تم النشر!**")
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
@@ -134,12 +139,12 @@ def handle_buttons(message):
 @bot.message_handler(content_types=['document'])
 def handle_docs(message):
     if message.from_user.id != ADMIN_ID: return
-    global stored_configs, last_upload_msg_id
+    global configs_db, last_upload_msg_id
     
     if admin_upload_mode:
-        stored_configs.append(message.document.file_id)
-        save_json(CONFIGS_FILE, stored_configs)
-        text = f"📂 **وضع الرفع مفعل!**\nالعداد: {len(stored_configs)} ✅"
+        configs_db.append(message.document.file_id)
+        save_db(CONFIGS_FILE, configs_db)
+        text = f"📂 **وضع الرفع مفعل!**\nالعداد: {len(configs_db)} ✅"
         try:
             if last_upload_msg_id: bot.edit_message_text(text, message.chat.id, last_upload_msg_id)
             else:
@@ -159,16 +164,16 @@ def user_like(call):
         mid = str(call.message.message_id)
         uname = f"@{call.from_user.username}" if call.from_user.username else call.from_user.first_name
         
-        if mid not in likes_data: likes_data[mid] = []
-        for u in likes_data[mid]:
+        if mid not in likes_db: likes_db[mid] = []
+        for u in likes_db[mid]:
             if u['id'] == uid:
                 bot.answer_callback_query(call.id, "⚠️ تم الدعم مسبقاً!", show_alert=True)
                 return
             
-        likes_data[mid].append({'id': uid, 'name': uname})
-        save_json(LIKES_FILE, likes_data)
+        likes_db[mid].append({'id': uid, 'name': uname})
+        save_db(LIKES_FILE, likes_db)
         
-        cnt = len(likes_data[mid])
+        cnt = len(likes_db[mid])
         bot_user = bot.get_me().username
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(f"❤️ اضغط للدعم ({cnt})", callback_data="do_like"))
@@ -180,7 +185,7 @@ def user_like(call):
     except: pass
 
 # ==============================
-# 🧹🧹🧹 التنظيف الأعمى (The Blind Sweeper) 🧹🧹🧹
+# 🧹 نظام الحذف والإرسال (المنطق الجديد) 🧹
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "get_file")
 def deliver_files(call):
@@ -189,72 +194,74 @@ def deliver_files(call):
     
     # للأدمن
     if uid == ADMIN_ID:
-        force_clean_and_send(call)
+        smart_clean_send(uid)
         bot.answer_callback_query(call.id, "👑 أهلاً بالأدمن", show_alert=False)
         return
 
     # للمستخدم
     user_found = False
-    if mid in likes_data:
-        for u in likes_data[mid]:
+    if mid in likes_db:
+        for u in likes_db[mid]:
             if u['id'] == uid:
                 user_found = True
                 break
 
     if user_found:
         try:
-            force_clean_and_send(call)
-            bot.answer_callback_query(call.id, "✅ تم التنظيف والإرسال!", show_alert=False)
+            smart_clean_send(uid)
+            bot.answer_callback_query(call.id, "✅ تم التحديث!", show_alert=False)
         except Exception as e:
             bot.answer_callback_query(call.id, "❌ ابدأ البوت أولاً (Start)", show_alert=True)
     else:
         bot.answer_callback_query(call.id, "⛔ اضغط زر القلب ❤️ أولاً!", show_alert=True)
 
-def force_clean_and_send(call):
+def smart_clean_send(user_id):
     """
-    تقوم هذه الدالة بمحاولة حذف آخر 40 رسالة بشكل تخميني
+    تقوم بحذف الرسائل المسجلة سابقاً في history.json
+    ثم ترسل الجديد وتسجله
     """
-    user_id = call.from_user.id
+    global history_db
     
-    # 1. إظهار حالة "جاري الكتابة" أو "جاري التنظيف" (اختياري)
-    bot.send_chat_action(user_id, 'upload_document')
+    str_id = str(user_id)
     
-    # 2. محاولة الحذف العمياء (The Blind Loop)
-    # نحن نأخذ آيدي آخر رسالة (وهي رسالة البوت التي تحتوي الزر)
-    # ونحاول الرجوع للخلف وحذف ما قبلها
-    try:
-        # ملاحظة: هذا الأمر قد يأخذ ثانية أو ثانيتين
-        # سنحاول حذف الرسائل السابقة فقط في نطاق الخاص
-        
-        # بما أننا لا نعرف آخر رسالة في الخاص بدقة، سنحاول استنتاجها
-        # أو ببساطة، سنقوم بإرسال الجديد مباشرة لأن الحذف الأعمى قد يسبب بطئاً شديداً
-        # لكن سأطبق لك الحذف بناءً على آخر رسالة تفاعل معها المستخدم إن أمكن
-        pass 
-    except: pass
-
-    # ⚠️ تعديل هام: بما أن الحذف الأعمى الكامل صعب تقنياً بدون معرفة الآيدي
-    # سأقوم بحيلة: إرسال رسالة "جاري التنظيف..." ثم حفظ آيديها، وحذف ما قبلها قدر المستطاع
+    # 1. تنظيف القديم (الموجود في الذاكرة)
+    if str_id in history_db:
+        old_msgs = history_db[str_id]
+        for msg_id in old_msgs:
+            try:
+                bot.delete_message(user_id, msg_id)
+            except:
+                pass # الرسالة محذوفة مسبقاً أو قديمة جداً
     
-    # التنفيذ الفعلي للحذف:
-    # للأسف تيليجرام لا يعطينا "آخر رسالة في الخاص".
-    # الحل الوحيد المضمون 100% هو أن نبدأ صفحة جديدة مع المستخدم.
-    
-    if not stored_configs:
-        bot.send_message(user_id, "⚠️ لا توجد ملفات.")
+    # 2. إرسال الجديد
+    if not configs_db:
+        m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
+        # نحفظ رسالة الخطأ هذه أيضاً لنحذفها لاحقاً
+        history_db[str_id] = [m.message_id]
+        save_db(HISTORY_FILE, history_db)
         return
-
-    # إرسال الملفات الجديدة
-    bot.send_message(user_id, "✨ **تم تحديث القائمة:**", parse_mode="Markdown")
     
-    for fid in stored_configs:
-        bot.send_document(user_id, fid)
+    new_msg_ids = []
+    
+    # إرسال رسالة نصية
+    m1 = bot.send_message(user_id, "✨ **الملفات الجديدة:**", parse_mode="Markdown")
+    new_msg_ids.append(m1.message_id)
+    
+    # إرسال الملفات
+    for fid in configs_db:
+        m_doc = bot.send_document(user_id, fid)
+        new_msg_ids.append(m_doc.message_id)
+        
+    # 3. تحديث الذاكرة الدائمة
+    history_db[str_id] = new_msg_ids
+    save_db(HISTORY_FILE, history_db) # 👈 حفظ فوري في الملف
 
 # ==============================
 # 🌐 التشغيل
 # ==============================
 app = Flask('')
 @app.route('/')
-def home(): return "<b>Bot V10 Running...</b>"
+def home(): return "<b>Bot V11 (Persistent Memory) Running...</b>"
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
