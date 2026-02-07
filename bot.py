@@ -9,7 +9,7 @@ import time
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "YOUR_BOT_TOKEN_HERE"   # ⚠️ ضع التوكن الخاص بك هنا
+TOKEN = "8579121219:AAH7VlhveD2LoXLwjfd30o7m6vqM5Z77SKI"   # ⚠️ ضع التوكن الخاص بك هنا
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
 LIKES_FILE = "likes_users_db.json"
@@ -283,3 +283,4 @@ if __name__ == "__main__":
     # 🔴 هنا الحل لمشكلة التايم آوت
     print("Bot started with connection fix...")
     bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=40)
+
