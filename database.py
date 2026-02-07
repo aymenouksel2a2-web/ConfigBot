@@ -269,7 +269,7 @@ def get_last_post():
 def full_reset():
     likes_col.delete_many({})
     configs_col.delete_many({})
-    history_col.delete_many({})
+    # history_col لا نحذفه! عشان نقدر نحذف الرسائل القديمة من عند المستخدمين
     posts_col.delete_many({})
     downloads_col.delete_many({})
     set_setting("total_downloads", 0)
