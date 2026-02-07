@@ -40,14 +40,12 @@ def init_db():
                 {"$setOnInsert": {"key": key, "value": val}},
                 upsert=True
             )
-        print("✅ MongoDB Connected & Initialized!")
+        print("✅ MongoDB Connected!")
         return True
     except Exception as e:
         print(f"❌ MongoDB Error: {e}")
         return False
 
-
-# ══════════ SETTINGS ══════════
 
 def get_setting(key, default=None):
     doc = settings_col.find_one({"key": key})
@@ -60,8 +58,6 @@ def set_setting(key, value):
         upsert=True
     )
 
-
-# ══════════ USERS ══════════
 
 def add_user(user_id, username=None, first_name=None, referrer_id=None):
     result = users_col.update_one(
@@ -144,8 +140,6 @@ def export_users_list():
     return lines
 
 
-# ══════════ REFERRALS ══════════
-
 def get_referral_count(user_id):
     return referrals_col.count_documents({"referrer_id": user_id})
 
@@ -161,8 +155,6 @@ def get_referral_leaderboard(limit=10):
         r["name"] = user.get("username") or user.get("first_name", "?") if user else "?"
     return results
 
-
-# ══════════ LIKES ══════════
 
 def add_like(user_id, message_id, username):
     try:
@@ -192,8 +184,6 @@ def clear_likes():
     likes_col.delete_many({})
 
 
-# ══════════ CONFIGS ══════════
-
 def add_config(file_id, file_name=None):
     count = configs_col.count_documents({})
     configs_col.insert_one({
@@ -214,8 +204,6 @@ def clear_configs():
     configs_col.delete_many({})
 
 
-# ══════════ DOWNLOADS ══════════
-
 def record_download(user_id, post_id=None):
     downloads_col.insert_one({"user_id": user_id, "post_id": post_id, "at": time.time()})
     settings_col.update_one({"key": "total_downloads"}, {"$inc": {"value": 1}}, upsert=True)
@@ -229,8 +217,6 @@ def get_post_downloads(post_id):
         return 0
     return downloads_col.count_documents({"post_id": post_id})
 
-
-# ══════════ MESSAGE HISTORY ══════════
 
 def save_message_history(user_id, msg_ids):
     history_col.delete_many({"user_id": user_id})
@@ -248,8 +234,6 @@ def clear_message_history(user_id):
     history_col.delete_many({"user_id": user_id})
 
 
-# ══════════ POSTS ══════════
-
 def add_post(message_id, text=None):
     try:
         posts_col.insert_one({
@@ -264,15 +248,15 @@ def get_last_post():
     return posts_col.find_one(sort=[("posted_at", -1)])
 
 
-# ══════════ RESET & STATS ══════════
-
+# ✅ التصفير بدون حذف سجل الرسائل
 def full_reset():
     likes_col.delete_many({})
     configs_col.delete_many({})
-    # history_col لا نحذفه! عشان نقدر نحذف الرسائل القديمة من عند المستخدمين
+    # ❗ history_col لا نحذفه - عشان نقدر نحذف رسائل المستخدمين القديمة
     posts_col.delete_many({})
     downloads_col.delete_many({})
     set_setting("total_downloads", 0)
+
 
 def get_stats():
     total   = users_col.count_documents({})
