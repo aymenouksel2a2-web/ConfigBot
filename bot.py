@@ -8,7 +8,7 @@ import json
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAHnuy2c_VRKzCELNMkc1ocUsc4gZCGi24o"   # ⚠️ ضع التوكن
+TOKEN = "8579121219:AAEknN3xKk3ZhCUbPC_jaUCRvS6MUurpeJo"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
 LIKES_FILE = "likes_users_db.json" # اسم جديد لقاعدة البيانات (لتغيير النظام لليوزرات)
@@ -289,3 +289,4 @@ def keep_alive():
 if __name__ == "__main__":
     keep_alive()
     bot.infinity_polling(skip_pending=True)
+
