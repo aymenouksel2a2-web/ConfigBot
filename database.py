@@ -248,11 +248,9 @@ def get_last_post():
     return posts_col.find_one(sort=[("posted_at", -1)])
 
 
-# ✅ التصفير بدون حذف سجل الرسائل
 def full_reset():
     likes_col.delete_many({})
     configs_col.delete_many({})
-    # ❗ history_col لا نحذفه - عشان نقدر نحذف رسائل المستخدمين القديمة
     posts_col.delete_many({})
     downloads_col.delete_many({})
     set_setting("total_downloads", 0)
