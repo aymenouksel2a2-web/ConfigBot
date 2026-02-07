@@ -645,6 +645,14 @@ def handle_like(call):
     try:
         uid = call.from_user.id
         mid = call.message.message_id
+
+        # --- بداية التعديل: التحقق من أن المنشور هو الأخير ---
+        last_post = get_last_post()
+        if last_post and mid != last_post["message_id"]:
+            bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
+            return
+        # --- نهاية التعديل ---
+
         cleanup_memory()
         if not check_cooldown(uid):
             bot.answer_callback_query(call.id, "⏳ انتظر...")
@@ -670,13 +678,6 @@ def handle_like(call):
 # ══════════════════════════════════════════
 
 @bot.callback_query_handler(func=lambda c: c.data == "get_file")
-def handle_delivery(call):
-    uid = call.from_user.id
-    mid = call.message.message_id
-
-    if not check_cooldown(uid):
-        bot.answer_callback_query(call.id, "⏳ انتظر...")
-        return
     if check_maintenance(call, True): return
     if is_banned(uid) and not is_admin(uid):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
@@ -909,4 +910,5 @@ if __name__ == "__main__":
             time.sleep(5)
         else:
             consecutive_409 = 0
+
 
