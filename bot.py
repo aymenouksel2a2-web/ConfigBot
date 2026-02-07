@@ -11,7 +11,7 @@ import time
 # ==========================================
 
 # ضع توكن البوت الخاص بك هنا بدلاً من النص الموجود
-TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = "8579121219:AAFRtkpzmqngUUjhg3FG7EKoYHdOghTa3_c"
 
 # رابط القناة أو الملف الذي تريد إرساله في الخاص
 CHANNEL_LINK = "https://t.me/AymenOxel"
@@ -156,3 +156,4 @@ if __name__ == "__main__":
     
     # استخدام إعدادات خاصة لمنع التضارب (timeout)
     bot.infinity_polling(allowed_updates=['message', 'callback_query', 'message_reaction'], timeout=20, long_polling_timeout=10)
+
