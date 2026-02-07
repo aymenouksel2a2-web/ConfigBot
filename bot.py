@@ -4,79 +4,83 @@ from flask import Flask
 from threading import Thread
 import os
 import json
-import time
 
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAH7VlhveD2LoXLwjfd30o7m6vqM5Z77SKI"   # ⚠️ ضع التوكن الخاص بك هنا
+TOKEN = "8579121219:AAF6YbkMttlGKzk38VpdyQj_7SgPjvT5kL4"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
-LIKES_FILE = "likes_users_db.json"
-CONFIGS_FILE = "configs_db.json"
+
+# أسماء ملفات البيانات
+LIKES_FILE = "likes_users_db.json"    # المتفاعلين
+CONFIGS_FILE = "configs_db.json"      # الكونفيجات
+HISTORY_FILE = "history_db.json"      # سجل رسائل الأعضاء (للحذف)
 
 bot = telebot.TeleBot(TOKEN)
 
 # متغيرات التشغيل
 admin_upload_mode = False
-last_upload_msg_id = None # لتتبع رسالة العداد وحذف القديم
+last_upload_msg_id = None # لتعديل رسالة العداد
 
 # ==============================
-# 💾 الدوال المساعدة (قاعدة البيانات)
+# 💾 الدوال المساعدة (قواعد البيانات)
 # ==============================
 def load_json(filename):
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f: return json.load(f)
-        except: return {} if filename == LIKES_FILE else []
-    return {} if filename == LIKES_FILE else []
+        except: return {} if filename != CONFIGS_FILE else []
+    return {} if filename != CONFIGS_FILE else []
 
 def save_json(filename, data):
     try:
         with open(filename, "w") as f: json.dump(data, f)
     except: pass
 
+# تحميل البيانات عند البدء
 likes_data = load_json(LIKES_FILE)
 stored_configs = load_json(CONFIGS_FILE)
+user_history = load_json(HISTORY_FILE) # {user_id: [msg_id1, msg_id2]}
 
 # ==============================
-# 🎮 لوحة تحكم الأدمن (كيبورد سفلي)
+# 🎮 لوحة تحكم الأدمن V8
 # ==============================
 @bot.message_handler(commands=['admin', 'start'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "🤖 هذا البوت مخصص لخدمة القناة فقط.")
+        bot.reply_to(message, "🤖 هذا البوت لخدمة القناة فقط.")
         return
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
     markup.add(types.KeyboardButton("📤 رفع ملفات"), types.KeyboardButton("✅ إنهاء وحفظ"))
-    markup.add(types.KeyboardButton("📢 نشر بالقناة"), types.KeyboardButton("🗑️ حذف الملفات"))
-    markup.add(types.KeyboardButton("👥 المتفاعلين (Users)"), types.KeyboardButton("📊 فحص المخزن"))
+    markup.add(types.KeyboardButton("📢 نشر بالقناة"), types.KeyboardButton("🗑️ تصفير شامل (Reset)")) # الزر الجديد
+    markup.add(types.KeyboardButton("👥 المتفاعلين"), types.KeyboardButton("📊 فحص المخزن"))
     markup.add(types.KeyboardButton("❌ إخفاء اللوحة"))
 
     status = "🟢 مفعل" if admin_upload_mode else "🔴 مغلق"
     files_count = len(stored_configs)
     
     msg = (
-        "👑 **لوحة تحكم الأدمن V7**\n\n"
+        "👑 **لوحة تحكم الأدمن V8** (النسخة النظيفة)\n\n"
         f"📂 الملفات الجاهزة: `{files_count}`\n"
         f"📡 وضع الرفع: {status}\n\n"
-        "👇 **تحكم بالبوت من الأسفل:**"
+        "👇 **التحكم:**"
     )
     bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
 
 # ==============================
-# 🕹️ معالج الأزرار السفلية
+# 🕹️ معالج الأزرار
 # ==============================
 @bot.message_handler(func=lambda message: message.text in [
     "📤 رفع ملفات", "✅ إنهاء وحفظ", "📢 نشر بالقناة", 
-    "🗑️ حذف الملفات", "👥 المتفاعلين (Users)", "📊 فحص المخزن", "❌ إخفاء اللوحة"
+    "🗑️ تصفير شامل (Reset)", "👥 المتفاعلين", "📊 فحص المخزن", "❌ إخفاء اللوحة"
 ])
 def handle_admin_buttons(message):
     if message.from_user.id != ADMIN_ID: return
     
-    global admin_upload_mode, stored_configs, last_upload_msg_id
+    global admin_upload_mode, stored_configs, likes_data, user_history, last_upload_msg_id
     action = message.text
     
     # 1. زر رفع الملفات
@@ -84,49 +88,49 @@ def handle_admin_buttons(message):
         admin_upload_mode = True
         stored_configs = [] 
         save_json(CONFIGS_FILE, stored_configs)
-        bot.reply_to(message, "📂 **تم تفعيل وضع الرفع!**\nأرسل الملفات الآن...")
+        sent = bot.reply_to(message, "📂 **وضع الرفع مفعل!**\nالعداد: 0")
+        last_upload_msg_id = sent.message_id # نحفظ الآيدي لنعدل عليه لاحقاً
         
     # 2. زر الإنهاء
     elif action == "✅ إنهاء وحفظ":
         admin_upload_mode = False
         last_upload_msg_id = None
-        bot.reply_to(message, f"✅ **تم الحفظ بنجاح!**\nالعدد النهائي: {len(stored_configs)}")
+        bot.reply_to(message, f"✅ **تم الحفظ!** العدد النهائي: {len(stored_configs)}")
 
-    # 3. زر الحذف
-    elif action == "🗑️ حذف الملفات":
+    # 3. زر التصفير الشامل (الجديد)
+    elif action == "🗑️ تصفير شامل (Reset)":
+        # مسح كل المتغيرات
         stored_configs = []
+        likes_data = {}
+        user_history = {}
+        
+        # مسح الملفات
         save_json(CONFIGS_FILE, stored_configs)
-        bot.reply_to(message, "🗑️ تم تنظيف المخزن (0 ملفات).")
+        save_json(LIKES_FILE, likes_data)
+        save_json(HISTORY_FILE, user_history)
+        
+        bot.reply_to(message, "♻️ **تم فرمتة البوت بنجاح!**\n- تم حذف الكونفيجات.\n- تم حذف قائمة المتفاعلين.\n- تم حذف سجلات الرسائل.")
 
     # 4. زر الفحص
     elif action == "📊 فحص المخزن":
-        bot.reply_to(message, f"📊 المخزن يحتوي على **{len(stored_configs)}** ملف.")
+        bot.reply_to(message, f"📊 لديك **{len(stored_configs)}** ملف جاهز.")
 
-    # 5. زر المتفاعلين (عرض الأسماء مباشرة)
-    elif action == "👥 المتفاعلين (Users)":
+    # 5. زر المتفاعلين
+    elif action == "👥 المتفاعلين":
         users_list = []
-        
-        # استخراج الأسماء
         for msg_id in likes_data:
             for user_info in likes_data[msg_id]:
                 if isinstance(user_info, dict):
-                    name = user_info.get('name', 'Unknown')
-                    users_list.append(name)
+                    users_list.append(user_info.get('name', 'Unknown'))
         
-        # إزالة التكرار
-        users_list = list(set(users_list))
+        users_list = list(set(users_list)) # إزالة التكرار
         
         if not users_list:
-            bot.reply_to(message, "⚠️ القائمة فارغة! لم يتفاعل أحد بعد.")
+            bot.reply_to(message, "⚠️ لا يوجد متفاعلين.")
         else:
-            text_report = f"👥 **قائمة المتفاعلين ({len(users_list)}):**\n\n"
-            for idx, user in enumerate(users_list, 1):
-                text_report += f"{idx}. {user}\n"
-            
-            if len(text_report) > 4000:
-                bot.reply_to(message, text_report[:4000] + "\n... (القائمة طويلة)")
-            else:
-                bot.reply_to(message, text_report)
+            text = f"👥 **المتفاعلين ({len(users_list)}):**\n\n" + "\n".join([f"{i+1}. {u}" for i, u in enumerate(users_list)])
+            if len(text) > 4000: text = text[:4000] + "\n..."
+            bot.reply_to(message, text)
 
     # 6. زر النشر
     elif action == "📢 نشر بالقناة":
@@ -144,7 +148,7 @@ def handle_admin_buttons(message):
             "🔥 **كونفيج Dark Tunnel صاروخ!** 🚀\n\n"
             "⚡️ السرعة: عالية جداً\n"
             "🔓 المدة: مفتوحة\n\n"
-            "⚠️ **طريقة التحميل:**\n1. اضغط زر التفعيل (🤖) وابدأ البوت.\n2. عد واضغط زر القلب (❤️) للدعم.\n3. اضغط استلام (📥) وسيصلك الملف."
+            "⚠️ **الخطوات:**\n1. فعل البوت (🤖).\n2. ادعمنا بقلب (❤️).\n3. حمل ملفك (📥)."
         )
         try:
             sent = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
@@ -154,12 +158,12 @@ def handle_admin_buttons(message):
         except Exception as e:
             bot.reply_to(message, f"❌ خطأ: {e}")
 
-    # 7. إخفاء اللوحة
+    # 7. إخفاء
     elif action == "❌ إخفاء اللوحة":
-        bot.send_message(message.chat.id, "تم الإخفاء. /admin للإظهار", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(message.chat.id, "تم الإخفاء.", reply_markup=types.ReplyKeyboardRemove())
 
 # ==============================
-# 📥 استقبال الملفات (رسالة واحدة متجددة)
+# 📥 استقبال الملفات (تعديل الرسالة - Edit)
 # ==============================
 @bot.message_handler(content_types=['document'])
 def handle_docs(message):
@@ -172,75 +176,68 @@ def handle_docs(message):
         stored_configs.append(message.document.file_id)
         save_json(CONFIGS_FILE, stored_configs)
         
-        new_text = f"✅ **تم رفع عدد الكونفيجات:** {len(stored_configs)}"
+        # تعديل الرسالة الموجودة بدلاً من إرسال جديدة
+        new_text = f"📂 **وضع الرفع مفعل!**\nالعداد: {len(stored_configs)} ✅"
         
         try:
-            # حذف الرسالة السابقة لتجنب الإزعاج
             if last_upload_msg_id:
-                bot.delete_message(message.chat.id, last_upload_msg_id)
-        except: pass
-        
-        # إرسال الجديدة
-        sent = bot.send_message(message.chat.id, new_text, parse_mode="Markdown")
-        last_upload_msg_id = sent.message_id
+                bot.edit_message_text(new_text, message.chat.id, last_upload_msg_id)
+            else:
+                # إذا لم تكن هناك رسالة سابقة، نرسل واحدة
+                sent = bot.send_message(message.chat.id, new_text)
+                last_upload_msg_id = sent.message_id
+        except:
+            # في حال فشل التعديل (مثلاً مسحت الرسالة)، نرسل جديدة
+            sent = bot.send_message(message.chat.id, new_text)
+            last_upload_msg_id = sent.message_id
 
 # ==============================
-# ❤️ معالجة تفاعل الأعضاء (حفظ + عداد)
+# ❤️ معالجة التفاعل
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "do_like")
 def user_like(call):
     try:
         uid = call.from_user.id
         mid = str(call.message.message_id)
-        
-        # جلب اليوزر
         username = f"@{call.from_user.username}" if call.from_user.username else call.from_user.first_name
-        user_obj = {'id': uid, 'name': username}
         
         if mid not in likes_data: likes_data[mid] = []
         
         # التحقق من التكرار
-        already_liked = False
         for user in likes_data[mid]:
             if user['id'] == uid:
-                already_liked = True
-                break
-        
-        if already_liked:
-            bot.answer_callback_query(call.id, "⚠️ تفاعلت مسبقاً!", show_alert=True)
-            return
+                bot.answer_callback_query(call.id, "⚠️ تم الدعم مسبقاً!", show_alert=True)
+                return
             
-        likes_data[mid].append(user_obj)
+        likes_data[mid].append({'id': uid, 'name': username})
         save_json(LIKES_FILE, likes_data)
         
         # تحديث الزر
         count = len(likes_data[mid])
         bot_user = bot.get_me().username
-        
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(f"❤️ اضغط للدعم ({count})", callback_data="do_like"))
         markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
         markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت (اضغط هنا)", url=f"https://t.me/{bot_user}?start=channel"))
         
         bot.edit_message_reply_markup(call.message.chat.id, mid, reply_markup=markup)
-        bot.answer_callback_query(call.id, "✅ شكراً للدعم!")
+        bot.answer_callback_query(call.id, "✅ شكراً لك!")
     except: pass
 
 # ==============================
-# 📂 تسليم الملفات
+# 📂 تسليم الملفات (مع التنظيف الذكي 🧹)
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "get_file")
 def deliver_files(call):
     uid = call.from_user.id
     mid = str(call.message.message_id)
     
-    # الأدمن يتجاوز الشروط
     if uid == ADMIN_ID:
-        send_files(uid)
+        clean_and_send(uid) # للأدمن أيضاً
         bot.answer_callback_query(call.id, "👑 أهلاً بالأدمن", show_alert=False)
         return
 
-    # فحص هل تفاعل المستخدم؟
+    # فحص التفاعل
     user_found = False
     if mid in likes_data:
         for user in likes_data[mid]:
@@ -250,27 +247,51 @@ def deliver_files(call):
 
     if user_found:
         try:
-            send_files(uid)
-            bot.answer_callback_query(call.id, "✅ تم الإرسال!", show_alert=False)
+            clean_and_send(uid)
+            bot.answer_callback_query(call.id, "✅ تم تحديث الملفات في الخاص!", show_alert=False)
         except:
-            bot.answer_callback_query(call.id, "❌ يجب تفعيل البوت أولاً!\nاضغط الزر السفلي 🤖", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ يجب تفعيل البوت أولاً! 🤖", show_alert=True)
     else:
         bot.answer_callback_query(call.id, "⛔ اضغط زر القلب ❤️ أولاً!", show_alert=True)
 
-def send_files(uid):
+def clean_and_send(uid):
+    """دالة تقوم بحذف الرسائل القديمة وإرسال الجديدة"""
+    global user_history
+    
+    # 1. تنظيف القديم 🧹
+    if str(uid) in user_history:
+        old_messages = user_history[str(uid)]
+        for msg_id in old_messages:
+            try:
+                bot.delete_message(uid, msg_id)
+            except:
+                pass # نتجاهل الخطأ إذا كانت الرسالة محذوفة أصلاً
+    
+    # 2. إرسال الجديد 📤
     if not stored_configs:
-        bot.send_message(uid, "⚠️ لا توجد ملفات حالياً.")
+        bot.send_message(uid, "⚠️ لا توجد ملفات جديدة.")
         return
-    bot.send_message(uid, "🎉 **ملفاتك جاهزة:**", parse_mode="Markdown")
+    
+    new_messages_ids = []
+    
+    # رسالة ترحيبية (اختياري)
+    m = bot.send_message(uid, "🎉 **ملفاتك الجديدة جاهزة:**", parse_mode="Markdown")
+    new_messages_ids.append(m.message_id)
+    
     for fid in stored_configs:
-        bot.send_document(uid, fid)
+        m = bot.send_document(uid, fid)
+        new_messages_ids.append(m.message_id)
+        
+    # 3. حفظ السجل الجديد 💾
+    user_history[str(uid)] = new_messages_ids
+    save_json(HISTORY_FILE, user_history)
 
 # ==============================
-# 🌐 تشغيل السيرفر المستقر
+# 🌐 التشغيل
 # ==============================
 app = Flask('')
 @app.route('/')
-def home(): return "<b>Bot V7 Running (Stable)</b>"
+def home(): return "<b>Bot V8 (Clean Mode) Running...</b>"
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
@@ -280,7 +301,4 @@ def keep_alive():
 
 if __name__ == "__main__":
     keep_alive()
-    # 🔴 هنا الحل لمشكلة التايم آوت
-    print("Bot started with connection fix...")
     bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=40)
-
