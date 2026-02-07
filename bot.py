@@ -156,4 +156,3 @@ if __name__ == "__main__":
     
     # استخدام إعدادات خاصة لمنع التضارب (timeout)
     bot.infinity_polling(allowed_updates=['message', 'callback_query', 'message_reaction'], timeout=20, long_polling_timeout=10)
-
