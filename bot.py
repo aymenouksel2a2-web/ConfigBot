@@ -4,202 +4,232 @@ from flask import Flask
 from threading import Thread
 import os
 import json
+import io # مكتبة لصنع الملفات النصية
 
 # ==============================
 # ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAGArk_w-Cv3uPJkZJi7Fi4y-5KUzZI2saU"   # ⚠️ ضع التوكن
+TOKEN = "8579121219:AAGRF0uCeBP8-Xa6RYniY5WGUc7W3Bw1CEc"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن
 CHANNEL_ID = -1003858414969     # آيدي القناة
-LIKES_FILE = "likes_db.json"    # ملف التفاعلات
-CONFIGS_FILE = "configs_db.json" # ملف حفظ الكونفيجات
+LIKES_FILE = "likes_db.json"
+CONFIGS_FILE = "configs_db.json"
 
 bot = telebot.TeleBot(TOKEN)
-
-# متغير لمعرفة هل الأدمن في وضع الرفع أم لا
 admin_upload_mode = False
 
 # ==============================
-# 💾 دوال حفظ وتحميل البيانات
+# 💾 الدوال المساعدة
 # ==============================
 def load_json(filename):
     if os.path.exists(filename):
         try:
-            with open(filename, "r") as f:
-                return json.load(f)
-        except:
-            return {} if filename == LIKES_FILE else []
+            with open(filename, "r") as f: return json.load(f)
+        except: return {} if filename == LIKES_FILE else []
     return {} if filename == LIKES_FILE else []
 
 def save_json(filename, data):
     try:
-        with open(filename, "w") as f:
-            json.dump(data, f)
+        with open(filename, "w") as f: json.dump(data, f)
     except: pass
 
-# تحميل البيانات عند التشغيل
-likes_data = load_json(LIKES_FILE)       # قاموس {msg_id: [users]}
-stored_configs = load_json(CONFIGS_FILE) # قائمة [file_id1, file_id2]
+likes_data = load_json(LIKES_FILE)
+stored_configs = load_json(CONFIGS_FILE)
 
 # ==============================
-# 📤 1. نظام رفع الملفات (للأدمن)
+# 🎮 لوحة تحكم الأدمن (المطورة)
 # ==============================
+@bot.message_handler(commands=['admin', 'start'])
+def admin_panel(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "🤖 أهلاً بك! هذا البوت مخصص لخدمة القناة.")
+        return
 
-@bot.message_handler(commands=['upload'])
-def start_upload_mode(message):
-    if message.from_user.id != ADMIN_ID: return
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    # الصف الأول
+    btn1 = types.InlineKeyboardButton("📤 رفع ملفات", callback_data="admin_upload")
+    btn2 = types.InlineKeyboardButton("✅ إنهاء وحفظ", callback_data="admin_done")
+    # الصف الثاني
+    btn3 = types.InlineKeyboardButton("📢 نشر بالقناة", callback_data="admin_post")
+    btn4 = types.InlineKeyboardButton("🗑️ حذف الملفات", callback_data="admin_clear")
+    # الصف الثالث
+    btn5 = types.InlineKeyboardButton("👥 ملف المتفاعلين", callback_data="admin_reactors")
+    btn6 = types.InlineKeyboardButton("📊 فحص المخزن", callback_data="admin_check")
+    
+    markup.add(btn1, btn2)
+    markup.add(btn3, btn4)
+    markup.add(btn5, btn6)
+    
+    status = "🟢 مفعل" if admin_upload_mode else "🔴 مغلق"
+    files_count = len(stored_configs)
+    
+    msg = (
+        "👑 **لوحة تحكم الأدمن V4**\n\n"
+        f"📂 الملفات الجاهزة: `{files_count}`\n"
+        f"📡 وضع الرفع: {status}\n\n"
+        "تحكم بالبوت من الأزرار أدناه:"
+    )
+    bot.send_message(message.chat.id, msg, parse_mode="Markdown", reply_markup=markup)
+
+# ==============================
+# 🕹️ معالج أزرار الأدمن
+# ==============================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+def handle_admin_actions(call):
+    if call.from_user.id != ADMIN_ID: return
     
     global admin_upload_mode, stored_configs
-    admin_upload_mode = True
-    stored_configs = [] # تفريغ القائمة القديمة لبدء قائمة جديدة
-    save_json(CONFIGS_FILE, stored_configs)
+    action = call.data
     
-    bot.reply_to(message, "📂 **تم تفعيل وضع الرفع!**\n\nقم بإرسال ملفات الكونفيج الآن (واحد تلو الآخر).\nعند الانتهاء اكتب الأمر: `/done`")
+    if action == "admin_upload":
+        admin_upload_mode = True
+        stored_configs = [] 
+        save_json(CONFIGS_FILE, stored_configs)
+        bot.edit_message_text("📂 **وضع الرفع مفعل!**\nأرسل الملفات الآن..", call.message.chat.id, call.message.message_id)
+        
+    elif action == "admin_done":
+        admin_upload_mode = False
+        bot.edit_message_text(f"✅ **تم الحفظ!** العدد: {len(stored_configs)}\nعد للقائمة /admin للنشر.", call.message.chat.id, call.message.message_id)
 
+    elif action == "admin_clear":
+        stored_configs = []
+        save_json(CONFIGS_FILE, stored_configs)
+        bot.answer_callback_query(call.id, "🗑️ تم حذف جميع الملفات المحفوظة!", show_alert=True)
+        admin_panel(call.message) # تحديث اللوحة
+
+    elif action == "admin_check":
+        bot.answer_callback_query(call.id, f"📂 الملفات الحالية: {len(stored_configs)}", show_alert=True)
+
+    elif action == "admin_reactors":
+        # تجميع المتفاعلين في ملف نصي
+        all_users = set()
+        for msg_id in likes_data:
+            for uid in likes_data[msg_id]:
+                all_users.add(uid)
+        
+        if not all_users:
+            bot.answer_callback_query(call.id, "⚠️ لا يوجد متفاعلين حتى الآن.", show_alert=True)
+            return
+
+        report = f"📊 تقرير المتفاعلين (العدد: {len(all_users)})\n---------------------------\n"
+        for uid in all_users:
+            report += f"ID: {uid}\n"
+        
+        # تحويل النص لملف وهمي للإرسال
+        file_obj = io.BytesIO(report.encode())
+        file_obj.name = "reactors_list.txt"
+        
+        bot.send_document(call.message.chat.id, file_obj, caption="👥 قائمة بجميع الآيديات التي تفاعلت.")
+        bot.answer_callback_query(call.id, "✅ تم إرسال الملف")
+
+    elif action == "admin_post":
+        if not stored_configs:
+            bot.answer_callback_query(call.id, "⚠️ المخزن فارغ! ارفع ملفات أولاً.", show_alert=True)
+            return
+        
+        # جلب يوزر البوت لرابط التفعيل
+        bot_user = bot.get_me().username
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❤️ اضغط للدعم (0)", callback_data="do_like"))
+        markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
+        # الزر الجديد للتفعيل 👇
+        markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت (اضغط هنا أولاً)", url=f"https://t.me/{bot_user}?start=channel"))
+        
+        msg_text = (
+            "🔥 **كونفيج Dark Tunnel صاروخ!** 🚀\n\n"
+            "⚡️ السرعة: عالية جداً\n"
+            "🔓 المدة: مفتوحة\n\n"
+            "⚠️ **طريقة التحميل:**\n1. اضغط زر التفعيل (🤖) وابدأ البوت.\n2. عد واضغط زر القلب (❤️) للدعم.\n3. اضغط استلام (📥) وسيصلك الملف."
+        )
+        try:
+            sent = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
+            likes_data[str(sent.message_id)] = []
+            save_json(LIKES_FILE, likes_data)
+            bot.answer_callback_query(call.id, "✅ تم النشر!")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ خطأ: {e}")
+
+# ==============================
+# 📥 استقبال الملفات
+# ==============================
 @bot.message_handler(content_types=['document'])
 def handle_docs(message):
     if message.from_user.id != ADMIN_ID: return
-    global stored_configs
-    
-    # إذا كان الأدمن في وضع الرفع، نحفظ الملف
     if admin_upload_mode:
-        file_id = message.document.file_id
-        file_name = message.document.file_name
-        
-        stored_configs.append(file_id)
+        stored_configs.append(message.document.file_id)
         save_json(CONFIGS_FILE, stored_configs)
-        
-        bot.reply_to(message, f"✅ تم حفظ الملف: `{file_name}`")
-
-@bot.message_handler(commands=['done'])
-def stop_upload_mode(message):
-    if message.from_user.id != ADMIN_ID: return
-    
-    global admin_upload_mode
-    if admin_upload_mode:
-        admin_upload_mode = False
-        count = len(stored_configs)
-        bot.reply_to(message, f"🛑 **تم إنهاء الرفع.**\nعدد الملفات المحفوظة: {count}\n\nيمكنك الآن نشر البوست في القناة عبر `/config`")
-    else:
-        bot.reply_to(message, "⚠️ أنت لم تبدأ وضع الرفع أصلاً! استخدم `/upload` أولاً.")
+        bot.reply_to(message, f"✅ تم الحفظ ({len(stored_configs)})")
 
 # ==============================
-# 📢 2. أمر النشر في القناة
-# ==============================
-@bot.message_handler(commands=['config'])
-def send_config_post(message):
-    if message.from_user.id != ADMIN_ID: return
-
-    # التأكد من وجود ملفات
-    if not stored_configs:
-        bot.reply_to(message, "⚠️ **تنبيه:** لا توجد ملفات محفوظة!\nاستخدم `/upload` لرفع ملفات جديدة أولاً.")
-        return
-
-    markup = types.InlineKeyboardMarkup()
-    btn_like = types.InlineKeyboardButton("❤️ اضغط للدعم (0)", callback_data="do_like")
-    btn_get = types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file")
-    
-    markup.add(btn_like)
-    markup.add(btn_get)
-    
-    msg_text = (
-        "🔥 **كونفيج Dark Tunnel صاروخ!** 🚀\n\n"
-        "⚡️ السرعة: عالية جداً\n"
-        "🔓 المدة: مفتوحة\n\n"
-        "⚠️ **شرط التحميل:** اضغط على زر القلب (❤️) في الأسفل أولاً لدعمنا!"
-    )
-    
-    try:
-        sent_msg = bot.send_message(CHANNEL_ID, msg_text, parse_mode="Markdown", reply_markup=markup)
-        likes_data[str(sent_msg.message_id)] = []
-        save_json(LIKES_FILE, likes_data)
-        bot.reply_to(message, "✅ تم النشر!")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطأ: {e}")
-
-# ==============================
-# ❤️ 3. معالج زر الدعم
+# ❤️ معالجة تفاعل الأعضاء
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "do_like")
-def handle_like_click(call):
+def user_like(call):
     try:
-        user_id = call.from_user.id
-        msg_id = str(call.message.message_id)
+        uid = call.from_user.id
+        mid = str(call.message.message_id)
         
-        # إشعار الأدمن
-        username = f"@{call.from_user.username}" if call.from_user.username else call.from_user.first_name
-        
-        if msg_id not in likes_data: likes_data[msg_id] = []
-        
-        if user_id in likes_data[msg_id]:
+        if mid not in likes_data: likes_data[mid] = []
+        if uid in likes_data[mid]:
             bot.answer_callback_query(call.id, "⚠️ تفاعلت مسبقاً!", show_alert=True)
             return
-        
-        likes_data[msg_id].append(user_id)
+            
+        likes_data[mid].append(uid)
         save_json(LIKES_FILE, likes_data)
         
-        # إرسال إشعار للأدمن
-        try:
-            bot.send_message(ADMIN_ID, f"🔔 **تفاعل جديد:** {username}")
-        except: pass
+        # 🚫 تم حذف رسالة الإشعار للأدمن هنا (لمنع الإزعاج)
 
         # تحديث العداد
-        count = len(likes_data[msg_id])
+        count = len(likes_data[mid])
+        bot_user = bot.get_me().username
+        
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(f"❤️ اضغط للدعم ({count})", callback_data="do_like"))
         markup.add(types.InlineKeyboardButton("📥 استلام الكونفيجات", callback_data="get_file"))
+        markup.add(types.InlineKeyboardButton("🤖 تفعيل البوت (اضغط هنا أولاً)", url=f"https://t.me/{bot_user}?start=channel"))
         
-        bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=msg_id, reply_markup=markup)
-        bot.answer_callback_query(call.id, "✅ تم التسجيل! يمكنك التحميل.")
-        
-    except Exception as e:
-        print(e)
+        bot.edit_message_reply_markup(call.message.chat.id, mid, reply_markup=markup)
+        bot.answer_callback_query(call.id, "✅ شكراً للدعم!")
+    except: pass
 
 # ==============================
-# 📂 4. معالج الاستلام (إرسال الملفات المحفوظة)
+# 📂 تسليم الملفات
 # ==============================
 @bot.callback_query_handler(func=lambda call: call.data == "get_file")
-def handle_get_file(call):
-    try:
-        user_id = call.from_user.id
-        msg_id = str(call.message.message_id)
-        
-        # السماح للأدمن فوراً
-        if user_id == ADMIN_ID:
-            send_stored_files(user_id)
-            bot.answer_callback_query(call.id, "👑 أهلاً بالأدمن", show_alert=False)
-            return
-
-        # التحقق من المستخدم
-        if msg_id in likes_data and user_id in likes_data[msg_id]:
-            try:
-                send_stored_files(user_id)
-                bot.answer_callback_query(call.id, "✅ تم الإرسال!", show_alert=False)
-            except:
-                bot_user = bot.get_me().username
-                bot.answer_callback_query(call.id, f"❌ ابدأ البوت أولاً!\n@{bot_user}", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "⛔ اضغط زر القلب (❤️) أولاً!", show_alert=True)
-            
-    except Exception as e:
-        print(e)
-
-def send_stored_files(user_id):
-    """دالة مساعدة لإرسال جميع الملفات المحفوظة"""
-    if not stored_configs:
-        bot.send_message(user_id, "⚠️ عذراً، لا توجد ملفات مرفوعة حالياً.")
+def deliver_files(call):
+    uid = call.from_user.id
+    mid = str(call.message.message_id)
+    
+    if uid == ADMIN_ID:
+        send_files(uid)
+        bot.answer_callback_query(call.id, "👑 أهلاً بالأدمن", show_alert=False)
         return
-        
-    bot.send_message(user_id, "🎉 **تفضل الكونفيجات الخاصة بك:**", parse_mode="Markdown")
-    for file_id in stored_configs:
-        bot.send_document(user_id, file_id)
+
+    if mid in likes_data and uid in likes_data[mid]:
+        try:
+            send_files(uid)
+            bot.answer_callback_query(call.id, "✅ تم الإرسال!", show_alert=False)
+        except:
+            me = bot.get_me().username
+            bot.answer_callback_query(call.id, f"❌ يجب تفعيل البوت أولاً!\nاضغط الزر السفلي 🤖", show_alert=True)
+    else:
+        bot.answer_callback_query(call.id, "⛔ اضغط زر القلب ❤️ أولاً!", show_alert=True)
+
+def send_files(uid):
+    if not stored_configs:
+        bot.send_message(uid, "⚠️ لا توجد ملفات حالياً.")
+        return
+    bot.send_message(uid, "🎉 **ملفاتك جاهزة:**", parse_mode="Markdown")
+    for fid in stored_configs:
+        bot.send_document(uid, fid)
 
 # ==============================
 # 🌐 التشغيل
 # ==============================
 app = Flask('')
 @app.route('/')
-def home(): return "<b>File Upload Bot Running...</b>"
+def home(): return "<b>Ultimate Bot V4 Running...</b>"
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
