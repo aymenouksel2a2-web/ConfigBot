@@ -171,13 +171,13 @@ def channel_markup(msg_id=None):
 def main_admin_markup():
     mk = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     mk.add("📤 رفع ملفات",   "📤 إضافة ملفات")
-    mk.add("✅ إنهاء",       "📢 نشر بالقناة")
+    mk.add("✅ إنهاء",        "📢 نشر بالقناة")
     mk.add("🗑️ حذف الملفات", "📊 الإحصائيات")
     mk.add("👥 المتفاعلين",  "📣 إذاعة جماعية")
     mk.add("✏️ تخصيص البوست", "🔄 تصفير شامل")
     mk.add("🔍 بحث مستخدم",  "🚫 بان مستخدم")
     mk.add("📋 تصدير المستخدمين", "🏆 المُحيلين")
-    mk.add("⚙️ الإعدادات",   "❌ إخفاء")
+    mk.add("⚙️ الإعدادات",    "❌ إخفاء")
     return mk
 
 def back_markup():
@@ -646,12 +646,12 @@ def handle_like(call):
         uid = call.from_user.id
         mid = call.message.message_id
 
-        # --- بداية التعديل: التحقق من أن المنشور هو الأخير ---
+        # --- التحقق من أن المنشور هو الأخير ---
         last_post = get_last_post()
         if last_post and mid != last_post["message_id"]:
             bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
             return
-        # --- نهاية التعديل ---
+        # --------------------------------------
 
         cleanup_memory()
         if not check_cooldown(uid):
@@ -678,6 +678,20 @@ def handle_like(call):
 # ══════════════════════════════════════════
 
 @bot.callback_query_handler(func=lambda c: c.data == "get_file")
+def handle_delivery(call):
+    uid = call.from_user.id
+    mid = call.message.message_id
+
+    # --- التحقق من أن المنشور هو الأخير ---
+    last_post = get_last_post()
+    if last_post and mid != last_post["message_id"]:
+        bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
+        return
+    # --------------------------------------
+
+    if not check_cooldown(uid):
+        bot.answer_callback_query(call.id, "⏳ انتظر...")
+        return
     if check_maintenance(call, True): return
     if is_banned(uid) and not is_admin(uid):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
@@ -910,5 +924,3 @@ if __name__ == "__main__":
             time.sleep(5)
         else:
             consecutive_409 = 0
-
-
