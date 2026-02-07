@@ -362,11 +362,20 @@ def handle_btns(message):
             admin_respond(chat_id, uid, "⚠️ لا توجد ملفات!", back_markup())
             return
         custom = get_setting("custom_post_text", "")
+        
+        # 🔻 التعديل تم فقط في هذا الجزء (داخل text) 🔻
         text = custom if custom else (
-            "🔥 *كونفيجات جديدة!* 🚀\n\n"
-            f"📂 الملفات: `{len(configs)}`\n"
-            "⚡️ سرعة عالية | 🔓 غير محدود\n\n"
-            "⚠️ *الخطوات:*\n1️⃣ فعّل البوت 🤖\n2️⃣ اضغط ❤️\n3️⃣ استلم 📥")
+            "🔥 *تم تجديد كونفيجات اضغط على زر استلم* 🚀\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"📂 عدد الملفات: `{len(configs)}`\n"
+            "⚡️ السرعة: فائقة | 🔓 محدد\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            "⚠️ *خطوات التحميل:*\n"
+            "1️⃣ فعّل البوت 🤖\n"
+            "2️⃣ اضغط ❤️ للدعم\n"
+            "3️⃣ اضغط 📥 للاستلام")
+        # 🔻 نهاية التعديل 🔻
+        
         try:
             sent = bot.send_message(CHANNEL_ID, text,
                 parse_mode="Markdown", reply_markup=channel_markup(None))
@@ -375,7 +384,7 @@ def handle_btns(message):
                 f"✅ *تم النشر!* ID: `{sent.message_id}`\n\n{panel_text(uid)}", back_markup())
         except Exception as e:
             admin_respond(chat_id, uid, f"❌ خطأ:\n`{e}`", back_markup())
-
+            
     elif act == "✏️ تخصيص البوست":
         set_state(uid, "custom_post")
         current = get_setting("custom_post_text", "")
@@ -904,4 +913,5 @@ if __name__ == "__main__":
             print("🔄 Restarting...")
         else:
             consecutive_409 = 0
+
 
