@@ -168,7 +168,7 @@ def channel_markup(msg_id=None):
 
     mk = types.InlineKeyboardMarkup(row_width=2)
     mk.row(
-        types.InlineKeyboardButton(f"❤️ دعم ({likes})", callback_data="do_like"),
+        types.InlineKeyboardButton(f"❤️ تفاعل ({likes})", callback_data="do_like"),
         types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file")
     )
     mk.add(types.InlineKeyboardButton(
@@ -1089,3 +1089,4 @@ if __name__ == "__main__":
             time.sleep(5)
         else:
             retry_count = 0
+
