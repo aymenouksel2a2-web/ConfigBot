@@ -43,6 +43,7 @@ bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 BOT_USERNAME = None
 
 admin_states = {}
+admin_panel_msg = {}   # ← رسالة اللوحة الوحيدة لكل أدمن
 cooldowns = {}
 COOLDOWN_SEC = 3
 last_cleanup = time.time()
@@ -87,6 +88,13 @@ def dname(user):
         return f"@{user.username}"
     return user.first_name or "Unknown"
 
+def delete_msg(chat_id, msg_id):
+    """حذف رسالة بأمان"""
+    try:
+        bot.delete_message(chat_id, msg_id)
+    except:
+        pass
+
 def notify_admins(text):
     for aid in ADMIN_IDS:
         try:
@@ -117,17 +125,37 @@ def safe_edit_markup(chat_id, message_id, markup):
     try:
         bot.edit_message_reply_markup(chat_id, message_id, reply_markup=markup)
         return True
-    except telebot.apihelper.ApiTelegramException as e:
-        err = str(e).lower()
-        if any(x in err for x in [
-            "message is not modified", "message to edit not found",
-            "message can't be edited", "message not found"
-        ]):
-            return False
-        print(f"⚠️ Edit error: {e}")
-        return False
     except:
         return False
+
+
+# ══════════════════════════════════════════
+# 📨 نظام الرسالة الواحدة للأدمن
+# ══════════════════════════════════════════
+
+def admin_respond(chat_id, uid, text, inline_markup=None):
+    """تعديل رسالة اللوحة أو إرسال جديدة إذا فشل التعديل"""
+    msg_id = admin_panel_msg.get(uid)
+
+    if msg_id:
+        try:
+            bot.edit_message_text(
+                text, chat_id, msg_id,
+                parse_mode="Markdown",
+                reply_markup=inline_markup
+            )
+            return
+        except telebot.apihelper.ApiTelegramException as e:
+            if "message is not modified" in str(e).lower():
+                return
+        except:
+            pass
+
+    # فشل التعديل → رسالة جديدة
+    m = bot.send_message(chat_id, text,
+        parse_mode="Markdown",
+        reply_markup=inline_markup)
+    admin_panel_msg[uid] = m.message_id
 
 
 # ══════════════════════════════════════════
@@ -160,6 +188,11 @@ def main_admin_markup():
     mk.add("⚙️ الإعدادات",   "❌ إخفاء")
     return mk
 
+def back_markup():
+    mk = types.InlineKeyboardMarkup()
+    mk.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="back_panel"))
+    return mk
+
 def settings_markup():
     maint = get_setting("maintenance_mode", False)
     sub   = get_setting("require_subscription", True)
@@ -171,8 +204,35 @@ def settings_markup():
     mk.add(types.InlineKeyboardButton(
         f"📢 فحص الاشتراك: {'🟢 مفعل' if sub else '🔴 مغلق'}",
         callback_data="toggle_subscription"))
-    mk.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="close_settings"))
+    mk.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_panel"))
     return mk
+
+def reset_markup():
+    mk = types.InlineKeyboardMarkup(row_width=2)
+    mk.row(
+        types.InlineKeyboardButton("✅ تأكيد الحذف", callback_data="confirm_reset"),
+        types.InlineKeyboardButton("❌ إلغاء", callback_data="back_panel")
+    )
+    return mk
+
+def panel_text(uid=None):
+    s = get_stats()
+    state = get_state(uid) if uid else None
+    state_txt = f"\n📝 الحالة: `{state}`" if state else ""
+
+    return (
+        "👑 *لوحة التحكم V13*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"📂 الملفات: `{s['configs']}`\n"
+        f"👥 المستخدمين: `{s['active_users']}` / `{s['total_users']}`\n"
+        f"🚫 محظور: `{s['banned_users']}` | ⛔ بلوك: `{s['blocked_users']}`\n"
+        f"❤️ متفاعلين: `{s['unique_likers']}`\n"
+        f"📥 تحميلات: `{s['total_downloads']}`\n"
+        f"🔗 إحالات: `{s['total_referrals']}`\n"
+        f"🆕 اليوم: `{s['new_today']}`"
+        f"{state_txt}\n"
+        "━━━━━━━━━━━━━━━━━━━"
+    )
 
 
 # ══════════════════════════════════════════
@@ -203,7 +263,8 @@ def cmd_start(message):
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
     if is_admin(uid):
-        show_panel(message)
+        delete_msg(message.chat.id, message.message_id)
+        show_panel(message.chat.id, uid)
         return
 
     bot.send_message(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.")
@@ -218,10 +279,9 @@ def cmd_start(message):
                     f"📊 إحالاتك: `{get_referral_count(referrer)}`")
             except:
                 pass
-
         notify_admins(
             f"👤 *مستخدم جديد!*\n"
-            f"• الاسم: {dname(u)}\n"
+            f"• {dname(u)}\n"
             f"• ID: `{uid}`{ref_text}\n"
             f"📊 الإجمالي: `{get_users_count()}`"
         )
@@ -230,7 +290,8 @@ def cmd_start(message):
 @bot.message_handler(commands=["admin"])
 def cmd_admin(message):
     if is_admin(message.from_user.id):
-        show_panel(message)
+        delete_msg(message.chat.id, message.message_id)
+        show_panel(message.chat.id, message.from_user.id)
 
 
 @bot.message_handler(commands=["myref"])
@@ -239,29 +300,20 @@ def cmd_myref(message):
     count = get_referral_count(uid)
     link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
     bot.send_message(uid,
-        f"🔗 *رابط إحالتك:*\n`{link}`\n\n"
-        f"👥 عدد إحالاتك: `{count}`")
+        f"🔗 *رابط إحالتك:*\n`{link}`\n\n👥 إحالاتك: `{count}`")
 
 
-def show_panel(message):
-    s = get_stats()
-    state = get_state(message.from_user.id)
-    state_txt = f"📝 State: `{state}`" if state else ""
+def show_panel(chat_id, uid):
+    """إرسال لوحة جديدة + حذف القديمة"""
+    # حذف اللوحة القديمة
+    old = admin_panel_msg.get(uid)
+    if old:
+        delete_msg(chat_id, old)
 
-    bot.send_message(message.chat.id,
-        "👑 *Admin Panel V13*\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"📂 Files: `{s['configs']}`\n"
-        f"👥 Users: `{s['active_users']}` / `{s['total_users']}`\n"
-        f"🚫 Banned: `{s['banned_users']}` | ⛔ Blocked: `{s['blocked_users']}`\n"
-        f"❤️ Likers: `{s['unique_likers']}`\n"
-        f"📥 Downloads: `{s['total_downloads']}`\n"
-        f"🔗 Referrals: `{s['total_referrals']}`\n"
-        f"🆕 Today: `{s['new_today']}`\n"
-        f"{state_txt}\n"
-        "━━━━━━━━━━━━━━━━━━━",
-        reply_markup=main_admin_markup()
-    )
+    m = bot.send_message(chat_id, panel_text(uid),
+        parse_mode="Markdown",
+        reply_markup=main_admin_markup())
+    admin_panel_msg[uid] = m.message_id
 
 
 # ══════════════════════════════════════════
@@ -274,9 +326,8 @@ BTN_LIST = [
     "👥 المتفاعلين", "📣 إذاعة جماعية", "✏️ تخصيص البوست",
     "🔄 تصفير شامل", "🔍 بحث مستخدم", "🚫 بان مستخدم",
     "📋 تصدير المستخدمين", "🏆 المُحيلين", "⚙️ الإعدادات",
-    "❌ إخفاء", "✅ تأكيد التصفير", "❌ إلغاء"
+    "❌ إخفاء"
 ]
-
 
 @bot.message_handler(func=lambda m: m.text in BTN_LIST)
 def handle_btns(message):
@@ -284,59 +335,86 @@ def handle_btns(message):
         return
 
     uid = message.from_user.id
+    chat_id = message.chat.id
     act = message.text
 
+    # ✅ حذف رسالة الزر فوراً
+    delete_msg(chat_id, message.message_id)
+
+    # ── 📤 رفع ملفات (جديد) ──
     if act == "📤 رفع ملفات":
         set_state(uid, "uploading")
         clear_configs()
-        bot.reply_to(message,
-            "📂 *Upload Mode: ON (جديد)*\n"
-            "🗑️ تم مسح القديم\n🔢 Counter: `0`\n\n📎 أرسل الملفات...")
+        admin_respond(chat_id, uid,
+            "📂 *وضع الرفع (جديد)*\n"
+            "🗑️ تم مسح القديم\n"
+            "🔢 العداد: `0`\n\n"
+            "📎 أرسل الملفات الآن...",
+            back_markup())
 
+    # ── 📤 إضافة ملفات ──
     elif act == "📤 إضافة ملفات":
         set_state(uid, "uploading")
-        current = get_configs_count()
-        bot.reply_to(message,
-            f"📂 *Upload Mode: ON (إضافة)*\n📁 الحالي: `{current}`\n\n📎 أرسل الملفات...")
+        admin_respond(chat_id, uid,
+            f"📂 *وضع الرفع (إضافة)*\n"
+            f"📁 الملفات الحالية: `{get_configs_count()}`\n\n"
+            "📎 أرسل الملفات الإضافية...",
+            back_markup())
 
+    # ── ✅ إنهاء ──
     elif act == "✅ إنهاء":
         old_state = get_state(uid)
         clear_state(uid)
-        bot.reply_to(message,
-            f"✅ *Done!* Files: `{get_configs_count()}` | Closed: `{old_state or 'none'}`")
+        admin_respond(chat_id, uid,
+            f"✅ *تم الإنهاء!*\n"
+            f"📂 إجمالي الملفات: `{get_configs_count()}`\n"
+            f"📝 أُغلق: `{old_state or 'لا شيء'}`\n\n"
+            f"{panel_text(uid)}",
+            back_markup())
 
+    # ── 🗑️ حذف الملفات ──
     elif act == "🗑️ حذف الملفات":
         clear_configs()
-        bot.reply_to(message, "🗑️ All configs deleted.")
+        admin_respond(chat_id, uid,
+            "🗑️ *تم حذف جميع الملفات!*\n\n"
+            f"{panel_text(uid)}",
+            back_markup())
 
+    # ── 📊 الإحصائيات ──
     elif act == "📊 الإحصائيات":
         s = get_stats()
-        bot.reply_to(message,
-            "📊 *Full Statistics*\n━━━━━━━━━━━━━━━\n"
-            f"👥 Total: `{s['total_users']}` | Active: `{s['active_users']}`\n"
-            f"⛔ Blocked: `{s['blocked_users']}` | 🚫 Banned: `{s['banned_users']}`\n"
-            f"📂 Configs: `{s['configs']}`\n"
-            f"❤️ Likers: `{s['unique_likers']}`\n"
-            f"📥 Downloads: `{s['total_downloads']}` (Today: `{s['dl_today']}`)\n"
-            f"🔗 Referrals: `{s['total_referrals']}`\n"
-            f"🆕 New Today: `{s['new_today']}`")
+        admin_respond(chat_id, uid,
+            "📊 *الإحصائيات الكاملة*\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"👥 الإجمالي: `{s['total_users']}` | النشطين: `{s['active_users']}`\n"
+            f"⛔ بلوك: `{s['blocked_users']}` | 🚫 محظور: `{s['banned_users']}`\n"
+            f"📂 الملفات: `{s['configs']}`\n"
+            f"❤️ المتفاعلين: `{s['unique_likers']}`\n"
+            f"📥 التحميلات: `{s['total_downloads']}` (اليوم: `{s['dl_today']}`)\n"
+            f"🔗 الإحالات: `{s['total_referrals']}`\n"
+            f"🆕 جدد اليوم: `{s['new_today']}`",
+            back_markup())
 
+    # ── 👥 المتفاعلين ──
     elif act == "👥 المتفاعلين":
         likers = get_all_likers()
         if not likers:
-            bot.reply_to(message, "⚠️ No interactions.")
+            admin_respond(chat_id, uid,
+                "⚠️ لا يوجد متفاعلين بعد.", back_markup())
         else:
             names = list({u["name"] for u in likers})
-            txt = f"👥 *Likers ({len(names)}):*\n"
-            txt += "\n".join(f"  • {n}" for n in names[:50])
-            if len(names) > 50:
-                txt += f"\n... +{len(names)-50}"
-            bot.reply_to(message, txt[:4000])
+            txt = f"👥 *المتفاعلين ({len(names)}):*\n"
+            txt += "\n".join(f"  • {n}" for n in names[:40])
+            if len(names) > 40:
+                txt += f"\n... +{len(names)-40}"
+            admin_respond(chat_id, uid, txt[:4000], back_markup())
 
+    # ── 📢 نشر بالقناة ──
     elif act == "📢 نشر بالقناة":
         configs = get_all_configs()
         if not configs:
-            bot.reply_to(message, "⚠️ No files!")
+            admin_respond(chat_id, uid,
+                "⚠️ لا توجد ملفات للنشر!", back_markup())
             return
 
         custom = get_setting("custom_post_text", "")
@@ -358,78 +436,217 @@ def handle_btns(message):
             sent = bot.send_message(CHANNEL_ID, text,
                 parse_mode="Markdown", reply_markup=mk)
             add_post(sent.message_id, text)
-            bot.reply_to(message, f"✅ *Posted!* ID: `{sent.message_id}`")
+            admin_respond(chat_id, uid,
+                f"✅ *تم النشر بنجاح!*\n"
+                f"🆔 ID: `{sent.message_id}`\n\n"
+                f"{panel_text(uid)}",
+                back_markup())
         except Exception as e:
-            bot.reply_to(message, f"❌ Error:\n`{e}`")
+            admin_respond(chat_id, uid,
+                f"❌ *خطأ:*\n`{e}`", back_markup())
 
+    # ── ✏️ تخصيص البوست ──
     elif act == "✏️ تخصيص البوست":
         set_state(uid, "custom_post")
         current = get_setting("custom_post_text", "")
-        preview = current[:200] if current else "(افتراضي)"
-        bot.reply_to(message,
-            f"✏️ *Custom Post*\n📝 الحالي:\n{preview}\n\n"
-            "أرسل النص الجديد أو `reset` للافتراضي\n✅ إنهاء للإلغاء")
+        preview = current[:200] if current else "(النص الافتراضي)"
+        admin_respond(chat_id, uid,
+            "✏️ *تخصيص نص البوست*\n\n"
+            f"📝 الحالي:\n{preview}\n\n"
+            "📨 أرسل النص الجديد\n"
+            "أو أرسل `reset` للافتراضي",
+            back_markup())
 
+    # ── 📣 إذاعة جماعية ──
     elif act == "📣 إذاعة جماعية":
         set_state(uid, "broadcast")
-        bot.reply_to(message,
-            f"📣 *Broadcast*\n👥 Target: `{get_active_count()}`\n\n"
-            "أرسل الرسالة الآن\n✅ إنهاء للإلغاء")
+        admin_respond(chat_id, uid,
+            f"📣 *وضع الإذاعة*\n\n"
+            f"👥 سيتم الإرسال لـ `{get_active_count()}` مستخدم\n\n"
+            "📨 أرسل الرسالة الآن\n"
+            "(نص / صورة / ملف / فيديو)",
+            back_markup())
 
+    # ── 🔍 بحث مستخدم ──
     elif act == "🔍 بحث مستخدم":
         set_state(uid, "search_user")
-        bot.reply_to(message, "🔍 أرسل *User ID*\n✅ إنهاء للإلغاء")
+        admin_respond(chat_id, uid,
+            "🔍 *بحث عن مستخدم*\n\n"
+            "📨 أرسل *User ID* للبحث",
+            back_markup())
 
+    # ── 🚫 بان مستخدم ──
     elif act == "🚫 بان مستخدم":
         set_state(uid, "ban_user")
-        bot.reply_to(message,
-            "🚫 أرسل *User ID* للحظر\nأو `unban ID` لفك الحظر\n✅ إنهاء للإلغاء")
+        admin_respond(chat_id, uid,
+            "🚫 *حظر مستخدم*\n\n"
+            "📨 أرسل *User ID* للحظر\n"
+            "أو `unban ID` لفك الحظر\n\n"
+            "مثال: `unban 123456789`",
+            back_markup())
 
+    # ── 📋 تصدير المستخدمين ──
     elif act == "📋 تصدير المستخدمين":
         users = export_users_list()
         if not users:
-            bot.reply_to(message, "⚠️ No users.")
+            admin_respond(chat_id, uid,
+                "⚠️ لا يوجد مستخدمين.", back_markup())
             return
-        chunk = "\n".join(users[:100])
-        bot.reply_to(message, (f"📋 *Users ({len(users)}):*\n\n" + chunk)[:4000])
+        chunk = "\n".join(users[:80])
+        txt = f"📋 *المستخدمين ({len(users)}):*\n\n{chunk}"
+        if len(users) > 80:
+            txt += f"\n... +{len(users)-80}"
+        admin_respond(chat_id, uid, txt[:4000], back_markup())
 
+    # ── 🏆 المُحيلين ──
     elif act == "🏆 المُحيلين":
         leaders = get_referral_leaderboard(10)
         if not leaders:
-            bot.reply_to(message, "⚠️ No referrals.")
+            admin_respond(chat_id, uid,
+                "⚠️ لا توجد إحالات بعد.", back_markup())
             return
-        txt = "🏆 *Top Referrers:*\n━━━━━━━━━━━━━━━\n"
+        txt = "🏆 *أعلى المُحيلين:*\n━━━━━━━━━━━━━━━\n"
         for i, r in enumerate(leaders, 1):
             medal = "🥇🥈🥉"[i-1] if i <= 3 else f"{i}."
             txt += f"{medal} {r['name']} → `{r['count']}`\n"
-        bot.reply_to(message, txt)
+        admin_respond(chat_id, uid, txt, back_markup())
 
+    # ── ⚙️ الإعدادات ──
     elif act == "⚙️ الإعدادات":
-        bot.send_message(uid, "⚙️ *Settings:*", reply_markup=settings_markup())
+        admin_respond(chat_id, uid,
+            "⚙️ *إعدادات البوت:*\n\n"
+            "اختر الإعداد لتغييره:",
+            settings_markup())
 
+    # ── 🔄 تصفير شامل ──
     elif act == "🔄 تصفير شامل":
-        mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        mk.add("✅ تأكيد التصفير", "❌ إلغاء")
-        bot.send_message(uid,
-            "⚠️ *حذف:* لايكات + ملفات + سجل + تحميلات\n❗ المستخدمين *لن تُحذف*",
-            reply_markup=mk)
+        admin_respond(chat_id, uid,
+            "⚠️ *تصفير شامل!*\n\n"
+            "*سيتم حذف:*\n"
+            "• اللايكات\n• الملفات\n"
+            "• سجل الرسائل\n• التحميلات\n\n"
+            "❗ المستخدمين والإحالات *لن تُحذف*",
+            reset_markup())
 
-    elif act == "✅ تأكيد التصفير":
-        full_reset()
-        bot.send_message(uid, "🔄 *Reset Done!*", reply_markup=main_admin_markup())
-
-    elif act == "❌ إلغاء":
-        clear_state(uid)
-        bot.send_message(uid, "❌ Cancelled.", reply_markup=main_admin_markup())
-
+    # ── ❌ إخفاء ──
     elif act == "❌ إخفاء":
+        old = admin_panel_msg.get(uid)
+        if old:
+            delete_msg(chat_id, old)
+            admin_panel_msg.pop(uid, None)
         clear_state(uid)
-        bot.send_message(uid, "🔒 /admin to reopen.",
+        m = bot.send_message(chat_id,
+            "🔒 تم إخفاء اللوحة\n/admin لإعادة الفتح",
             reply_markup=types.ReplyKeyboardRemove())
+        # حذف رسالة الإخفاء بعد ثانية
+        time.sleep(0.5)
+        delete_msg(chat_id, m.message_id)
 
 
 # ══════════════════════════════════════════
-# 📝 STATE HANDLERS
+# 🔙 INLINE CALLBACKS (رجوع + إعدادات + تصفير)
+# ══════════════════════════════════════════
+
+@bot.callback_query_handler(
+    func=lambda c: c.data in [
+        "back_panel", "toggle_maintenance",
+        "toggle_subscription", "confirm_reset", "cancel_reset"
+    ] or c.data.startswith("ban_") or c.data.startswith("unban_")
+)
+def handle_admin_callbacks(call):
+    if not is_admin(call.from_user.id):
+        return
+
+    uid = call.from_user.id
+    chat_id = call.message.chat.id
+
+    # ── 🔙 رجوع للوحة ──
+    if call.data == "back_panel":
+        clear_state(uid)
+        admin_respond(chat_id, uid, panel_text(uid))
+        bot.answer_callback_query(call.id)
+
+    # ── 🔧 الصيانة ──
+    elif call.data == "toggle_maintenance":
+        cur = get_setting("maintenance_mode", False)
+        set_setting("maintenance_mode", not cur)
+        bot.answer_callback_query(call.id,
+            f"🔧 الصيانة: {'مفعل' if not cur else 'مغلق'}")
+        admin_respond(chat_id, uid,
+            "⚙️ *إعدادات البوت:*\n\nاختر الإعداد لتغييره:",
+            settings_markup())
+
+    # ── 📢 فحص الاشتراك ──
+    elif call.data == "toggle_subscription":
+        cur = get_setting("require_subscription", True)
+        set_setting("require_subscription", not cur)
+        bot.answer_callback_query(call.id,
+            f"📢 الاشتراك: {'مفعل' if not cur else 'مغلق'}")
+        admin_respond(chat_id, uid,
+            "⚙️ *إعدادات البوت:*\n\nاختر الإعداد لتغييره:",
+            settings_markup())
+
+    # ── ✅ تأكيد التصفير ──
+    elif call.data == "confirm_reset":
+        full_reset()
+        bot.answer_callback_query(call.id, "✅ تم التصفير!")
+        admin_respond(chat_id, uid,
+            "🔄 *تم التصفير الشامل!*\n\n" + panel_text(uid),
+            back_markup())
+
+    # ── ❌ إلغاء التصفير ──
+    elif call.data == "cancel_reset":
+        bot.answer_callback_query(call.id, "❌ تم الإلغاء")
+        admin_respond(chat_id, uid, panel_text(uid))
+
+    # ── 🚫 حظر ──
+    elif call.data.startswith("ban_"):
+        target = int(call.data.replace("ban_", ""))
+        ban_user(target)
+        bot.answer_callback_query(call.id, f"🚫 تم حظر {target}", show_alert=True)
+        # تحديث معلومات المستخدم
+        info = search_user(target)
+        if info:
+            show_user_info(chat_id, uid, target, info)
+
+    # ── ✅ فك حظر ──
+    elif call.data.startswith("unban_"):
+        target = int(call.data.replace("unban_", ""))
+        unban_user(target)
+        bot.answer_callback_query(call.id, f"✅ تم فك حظر {target}", show_alert=True)
+        info = search_user(target)
+        if info:
+            show_user_info(chat_id, uid, target, info)
+
+
+def show_user_info(chat_id, uid, target, info):
+    """عرض معلومات المستخدم في رسالة اللوحة"""
+    status = "🚫 محظور" if info.get("is_banned") else \
+             ("⛔ بلوك" if info.get("is_blocked") else "✅ نشط")
+    joined = time.strftime("%Y-%m-%d %H:%M",
+        time.localtime(info.get("joined_at", 0)))
+
+    mk = types.InlineKeyboardMarkup()
+    if info.get("is_banned"):
+        mk.add(types.InlineKeyboardButton("✅ فك الحظر", callback_data=f"unban_{target}"))
+    else:
+        mk.add(types.InlineKeyboardButton("🚫 حظر", callback_data=f"ban_{target}"))
+    mk.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_panel"))
+
+    admin_respond(chat_id, uid,
+        f"🔍 *معلومات المستخدم:*\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"👤 {info.get('first_name', '?')} | @{info.get('username', 'none')}\n"
+        f"🆔 `{target}` | {status}\n"
+        f"📅 {joined}\n"
+        f"❤️ لايكات: `{info.get('like_count', 0)}` | "
+        f"📥 تحميلات: `{info.get('download_count', 0)}` | "
+        f"🔗 إحالات: `{info.get('referral_count', 0)}`",
+        mk)
+
+
+# ══════════════════════════════════════════
+# 📝 STATE HANDLERS (إدخال نصي)
 # ══════════════════════════════════════════
 
 @bot.message_handler(
@@ -440,14 +657,21 @@ def handle_btns(message):
 )
 def handle_custom_post(message):
     uid = message.from_user.id
+    chat_id = message.chat.id
+    delete_msg(chat_id, message.message_id)
+
     if message.text.lower() == "reset":
         set_setting("custom_post_text", "")
         clear_state(uid)
-        bot.reply_to(message, "✅ تم الإعادة للافتراضي.", reply_markup=main_admin_markup())
+        admin_respond(chat_id, uid,
+            "✅ *تم إعادة النص للافتراضي!*\n\n" + panel_text(uid),
+            back_markup())
     else:
         set_setting("custom_post_text", message.text)
         clear_state(uid)
-        bot.reply_to(message, "✅ تم الحفظ!", reply_markup=main_admin_markup())
+        admin_respond(chat_id, uid,
+            "✅ *تم حفظ النص الجديد!*\n\n" + panel_text(uid),
+            back_markup())
 
 
 @bot.message_handler(
@@ -458,36 +682,24 @@ def handle_custom_post(message):
 )
 def handle_search(message):
     uid = message.from_user.id
+    chat_id = message.chat.id
+    delete_msg(chat_id, message.message_id)
     clear_state(uid)
+
     try:
         target = int(message.text.strip())
     except:
-        bot.reply_to(message, "❌ ID غير صحيح!", reply_markup=main_admin_markup())
+        admin_respond(chat_id, uid,
+            "❌ *أرسل رقم ID صحيح!*", back_markup())
         return
 
     info = search_user(target)
     if not info:
-        bot.reply_to(message, "❌ غير موجود.", reply_markup=main_admin_markup())
+        admin_respond(chat_id, uid,
+            f"❌ المستخدم `{target}` غير موجود.", back_markup())
         return
 
-    status = "🚫 Banned" if info.get("is_banned") else \
-             ("⛔ Blocked" if info.get("is_blocked") else "✅ Active")
-    joined = time.strftime("%Y-%m-%d %H:%M", time.localtime(info.get("joined_at", 0)))
-
-    mk = types.InlineKeyboardMarkup()
-    if info.get("is_banned"):
-        mk.add(types.InlineKeyboardButton("✅ فك الحظر", callback_data=f"unban_{target}"))
-    else:
-        mk.add(types.InlineKeyboardButton("🚫 حظر", callback_data=f"ban_{target}"))
-
-    bot.reply_to(message,
-        f"🔍 *User Info:*\n━━━━━━━━━━━━━━━\n"
-        f"👤 {info.get('first_name', '?')} | @{info.get('username', 'none')}\n"
-        f"🆔 `{target}` | {status}\n📅 {joined}\n"
-        f"❤️ Likes: `{info.get('like_count', 0)}` | "
-        f"📥 DL: `{info.get('download_count', 0)}` | "
-        f"🔗 Refs: `{info.get('referral_count', 0)}`",
-        reply_markup=mk)
+    show_user_info(chat_id, uid, target, info)
 
 
 @bot.message_handler(
@@ -498,61 +710,32 @@ def handle_search(message):
 )
 def handle_ban(message):
     uid = message.from_user.id
+    chat_id = message.chat.id
+    delete_msg(chat_id, message.message_id)
     clear_state(uid)
     text = message.text.strip()
+
     try:
         if text.lower().startswith("unban"):
             target = int(text.split()[1])
             unban_user(target)
-            bot.reply_to(message, f"✅ Unbanned `{target}`", reply_markup=main_admin_markup())
+            admin_respond(chat_id, uid,
+                f"✅ *تم فك حظر* `{target}`\n\n" + panel_text(uid),
+                back_markup())
         else:
             target = int(text)
             if target in ADMIN_IDS:
-                bot.reply_to(message, "❌ لا يمكن حظر أدمن!", reply_markup=main_admin_markup())
+                admin_respond(chat_id, uid,
+                    "❌ لا يمكن حظر أدمن!", back_markup())
                 return
             ban_user(target)
-            bot.reply_to(message, f"🚫 Banned `{target}`", reply_markup=main_admin_markup())
+            admin_respond(chat_id, uid,
+                f"🚫 *تم حظر* `{target}`\n\n" + panel_text(uid),
+                back_markup())
     except:
-        bot.reply_to(message, "❌ صيغة خاطئة!", reply_markup=main_admin_markup())
-
-
-# ══════════════════════════════════════════
-# ⚙️ SETTINGS CALLBACKS
-# ══════════════════════════════════════════
-
-@bot.callback_query_handler(
-    func=lambda c: c.data in ["toggle_maintenance", "toggle_subscription", "close_settings"]
-                   or c.data.startswith("ban_") or c.data.startswith("unban_")
-)
-def handle_settings_cb(call):
-    if not is_admin(call.from_user.id):
-        return
-
-    if call.data == "toggle_maintenance":
-        cur = get_setting("maintenance_mode", False)
-        set_setting("maintenance_mode", not cur)
-        bot.answer_callback_query(call.id, f"🔧 {'ON' if not cur else 'OFF'}")
-        safe_edit_markup(call.message.chat.id, call.message.message_id, settings_markup())
-
-    elif call.data == "toggle_subscription":
-        cur = get_setting("require_subscription", True)
-        set_setting("require_subscription", not cur)
-        bot.answer_callback_query(call.id, f"📢 {'ON' if not cur else 'OFF'}")
-        safe_edit_markup(call.message.chat.id, call.message.message_id, settings_markup())
-
-    elif call.data == "close_settings":
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-
-    elif call.data.startswith("ban_"):
-        ban_user(int(call.data.replace("ban_", "")))
-        bot.answer_callback_query(call.id, "🚫 Banned!", show_alert=True)
-
-    elif call.data.startswith("unban_"):
-        unban_user(int(call.data.replace("unban_", "")))
-        bot.answer_callback_query(call.id, "✅ Unbanned!", show_alert=True)
+        admin_respond(chat_id, uid,
+            "❌ *صيغة خاطئة!*\nاستخدم: `ID` أو `unban ID`",
+            back_markup())
 
 
 # ══════════════════════════════════════════
@@ -567,20 +750,27 @@ def handle_settings_cb(call):
 )
 def do_broadcast(message):
     uid = message.from_user.id
+    chat_id = message.chat.id
     clear_state(uid)
+
     users = get_all_users()
     if not users:
-        bot.reply_to(message, "⚠️ No users!")
+        delete_msg(chat_id, message.message_id)
+        admin_respond(chat_id, uid,
+            "⚠️ لا يوجد مستخدمين!", back_markup())
         return
 
     total = len(users)
-    st = bot.reply_to(message, f"📣 *Broadcasting to {total}...*")
+    admin_respond(chat_id, uid,
+        f"📣 *جاري الإرسال...*\n"
+        f"👥 الهدف: `{total}`\n⏳ 0%")
+
     ok = fail = block = 0
     t0 = time.time()
 
     for i, tuid in enumerate(users, 1):
         try:
-            bot.forward_message(tuid, message.chat.id, message.message_id)
+            bot.forward_message(tuid, chat_id, message.message_id)
             ok += 1
             time.sleep(0.04)
         except telebot.apihelper.ApiTelegramException as e:
@@ -595,20 +785,25 @@ def do_broadcast(message):
         if i % 25 == 0 or i == total:
             pct = int(i/total*100)
             bar = "█"*(pct//5) + "░"*(20-pct//5)
-            try:
-                bot.edit_message_text(
-                    f"📣 *Broadcasting...*\n[{bar}] {pct}%\n"
-                    f"⏳ `{i}/{total}`\n✅{ok} 🚫{block} ❌{fail}",
-                    message.chat.id, st.message_id, parse_mode="Markdown")
-            except:
-                pass
+            admin_respond(chat_id, uid,
+                f"📣 *جاري الإرسال...*\n"
+                f"[{bar}] {pct}%\n"
+                f"⏳ `{i}/{total}`\n"
+                f"✅ {ok} | 🚫 {block} | ❌ {fail}")
 
-    try:
-        bot.edit_message_text(
-            f"📣 *Done!*\n✅ {ok} | 🚫 {block} | ❌ {fail}\n⏱️ {int(time.time()-t0)}s",
-            message.chat.id, st.message_id, parse_mode="Markdown")
-    except:
-        pass
+    elapsed = int(time.time() - t0)
+
+    # حذف رسالة البث بعد الانتهاء
+    delete_msg(chat_id, message.message_id)
+
+    admin_respond(chat_id, uid,
+        f"📣 *تم الإرسال!*\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"✅ نجح: `{ok}`\n"
+        f"🚫 بلوك: `{block}`\n"
+        f"❌ فشل: `{fail}`\n"
+        f"⏱️ الوقت: `{elapsed}s`",
+        back_markup())
 
 
 # ══════════════════════════════════════════
@@ -619,13 +814,31 @@ def do_broadcast(message):
 def handle_doc(message):
     if not is_admin(message.from_user.id):
         return
-    if get_state(message.from_user.id) != "uploading":
-        bot.reply_to(message, "⚠️ اضغط 📤 أولاً.")
+
+    uid = message.from_user.id
+    chat_id = message.chat.id
+
+    if get_state(uid) != "uploading":
+        delete_msg(chat_id, message.message_id)
+        admin_respond(chat_id, uid,
+            "⚠️ اضغط 📤 أولاً لتفعيل وضع الرفع.",
+            back_markup())
         return
 
     fname = message.document.file_name or "file"
     add_config(message.document.file_id, fname)
-    bot.reply_to(message, f"✅ `{fname}` | Total: `{get_configs_count()}`")
+
+    # حذف رسالة الملف
+    delete_msg(chat_id, message.message_id)
+
+    cnt = get_configs_count()
+    admin_respond(chat_id, uid,
+        f"📂 *وضع الرفع*\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"✅ آخر ملف: `{fname}`\n"
+        f"📊 الإجمالي: `{cnt}` ملف\n\n"
+        "📎 أرسل المزيد أو اضغط ✅ إنهاء",
+        back_markup())
 
 
 # ══════════════════════════════════════════
@@ -653,7 +866,6 @@ def handle_like(call):
             bot.answer_callback_query(call.id, "⚠️ سبق أن دعمت! ❤️", show_alert=True)
             return
 
-        # ✅ تحديث العداد الحي فوراً
         safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
         bot.answer_callback_query(call.id, "✅ شكراً! ❤️")
 
@@ -683,7 +895,6 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
-    # أدمن
     if is_admin(uid):
         try:
             smart_send(uid, mid)
@@ -692,24 +903,19 @@ def handle_delivery(call):
             bot.answer_callback_query(call.id, f"❌ {str(e)[:80]}", show_alert=True)
         return
 
-    # فحص اشتراك
     if get_setting("require_subscription", True):
         if not check_subscription(uid):
             bot.answer_callback_query(call.id,
                 "⚠️ اشترك بالقناة أولاً!", show_alert=True)
             return
 
-    # فحص لايك
     if not has_liked(uid, mid):
         bot.answer_callback_query(call.id, "⛔ اضغط ❤️ أولاً!", show_alert=True)
         return
 
-    # إرسال
     try:
         smart_send(uid, mid)
         bot.answer_callback_query(call.id, "✅ تم!")
-
-        # ✅ تحديث عداد التحميلات الحي
         safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
 
     except telebot.apihelper.ApiTelegramException as e:
@@ -724,9 +930,7 @@ def handle_delivery(call):
 
 
 def smart_send(user_id, post_id=None):
-    """⚡ حذف ذكي + إرسال كألبوم"""
-
-    # 1️⃣ حذف القديم
+    """حذف ذكي + إرسال كألبوم"""
     old = get_message_history(user_id)
     for mid in old:
         try:
@@ -735,7 +939,6 @@ def smart_send(user_id, post_id=None):
             pass
     clear_message_history(user_id)
 
-    # 2️⃣ جلب الملفات
     configs = get_all_configs()
     if not configs:
         m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
@@ -744,9 +947,7 @@ def smart_send(user_id, post_id=None):
 
     ids = []
 
-    # 3️⃣ إرسال كألبوم
     if len(configs) == 1:
-        # ملف واحد فقط
         cfg = configs[0]
         caption = f"📄 1/1"
         if cfg.get("name"):
@@ -757,9 +958,7 @@ def smart_send(user_id, post_id=None):
         except Exception as e:
             print(f"Send error: {e}")
     else:
-        # عدة ملفات = ألبومات (10 بكل ألبوم كحد أقصى)
         chunks = [configs[i:i+10] for i in range(0, len(configs), 10)]
-
         for chunk_idx, chunk in enumerate(chunks):
             media = []
             for i, cfg in enumerate(chunk):
@@ -767,18 +966,14 @@ def smart_send(user_id, post_id=None):
                 caption = f"📄 {file_num}/{len(configs)}"
                 if cfg.get("name"):
                     caption += f" • {cfg['name']}"
-
                 media.append(InputMediaDocument(
-                    media=cfg["file_id"],
-                    caption=caption
-                ))
+                    media=cfg["file_id"], caption=caption))
 
             try:
                 msgs = bot.send_media_group(user_id, media)
                 ids.extend([m.message_id for m in msgs])
             except Exception as e:
                 print(f"Album error: {e}")
-                # فشل الألبوم = إرسال فردي
                 for cfg in chunk:
                     try:
                         d = bot.send_document(user_id, cfg["file_id"])
@@ -786,13 +981,12 @@ def smart_send(user_id, post_id=None):
                     except:
                         pass
 
-    # 4️⃣ حفظ + تسجيل
     save_message_history(user_id, ids)
     record_download(user_id, post_id)
 
 
 # ══════════════════════════════════════════
-# 🌐 FLASK (بسيط بدون Dashboard)
+# 🌐 FLASK
 # ══════════════════════════════════════════
 
 app = Flask(__name__)
@@ -824,7 +1018,7 @@ def clear_old_sessions():
         except telebot.apihelper.ApiTelegramException as e:
             if "409" in str(e):
                 wait = attempt * 3
-                print(f"⏳ 409 (attempt {attempt}) - Wait {wait}s...")
+                print(f"⏳ 409 ({attempt}) - Wait {wait}s...")
                 time.sleep(wait)
             else:
                 time.sleep(3)
@@ -835,7 +1029,7 @@ def clear_old_sessions():
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("  🤖 VPN Bot V13")
+    print("  🤖 VPN Bot V13 - Clean UI")
     print("=" * 45)
 
     print("🔧 MongoDB...")
