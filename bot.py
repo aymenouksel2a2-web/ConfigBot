@@ -108,7 +108,7 @@ def check_subscription(user_id):
         member = bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status in ["member", "administrator", "creator"]
     except:
-        return False
+        return True
 
 def check_maintenance(call_or_msg, is_callback=False):
     if get_setting("maintenance_mode", False):
@@ -356,7 +356,7 @@ def handle_btns(message):
             if len(names) > 40: txt += f"\n... +{len(names)-40}"
             admin_respond(chat_id, uid, txt[:4000], back_markup())
 
-        elif act == "📢 نشر بالقناة":
+    elif act == "📢 نشر بالقناة":
         configs = get_all_configs()
         if not configs:
             admin_respond(chat_id, uid, "⚠️ لا توجد ملفات!", back_markup())
@@ -365,7 +365,7 @@ def handle_btns(message):
         text = custom if custom else (
             "⚡️ *تم تجديد الكونفيجات!*\n\n"
             f"📂 عدد الملفات: `{len(configs)}`\n"
-            "🚀 سرعة عالية | ⏳ محدد غير المدة\n\n"
+            "🚀 سرعة عالية | ⏳ محدد المدة\n\n"
             "━━━━━━━━━━━━━━━\n"
             "📌 *طريقة الاستلام:*\n\n"
             "1️⃣ فعّل البوت بالضغط على 🤖\n"
@@ -381,7 +381,7 @@ def handle_btns(message):
                 f"✅ *تم النشر!* ID: `{sent.message_id}`\n\n{panel_text(uid)}", back_markup())
         except Exception as e:
             admin_respond(chat_id, uid, f"❌ خطأ:\n`{e}`", back_markup())
-            
+
     elif act == "✏️ تخصيص البوست":
         set_state(uid, "custom_post")
         current = get_setting("custom_post_text", "")
@@ -666,7 +666,7 @@ def handle_like(call):
 
 
 # ══════════════════════════════════════════
-# 📥 DELIVERY (ألبوم + حذف ذكي)
+# 📥 DELIVERY (ألبوم + حذف ذكي + عداد حي)
 # ══════════════════════════════════════════
 
 @bot.callback_query_handler(func=lambda c: c.data == "get_file")
@@ -684,9 +684,13 @@ def handle_delivery(call):
 
     if is_admin(uid):
         try:
-            smart_send(uid, mid)
-            bot.answer_callback_query(call.id, "👑 Admin")
+            result = smart_send(uid, mid)
+            if result:
+                bot.answer_callback_query(call.id, "👑 تم!")
+            else:
+                bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
         except Exception as e:
+            print(f"Admin delivery error: {e}")
             bot.answer_callback_query(call.id, f"❌ {str(e)[:80]}", show_alert=True)
         return
 
@@ -700,9 +704,12 @@ def handle_delivery(call):
         return
 
     try:
-        smart_send(uid, mid)
-        bot.answer_callback_query(call.id, "✅ تم!")
-        safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
+        result = smart_send(uid, mid)
+        if result:
+            bot.answer_callback_query(call.id, "✅ تم!")
+            safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
+        else:
+            bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
     except telebot.apihelper.ApiTelegramException as e:
         if any(x in str(e).lower() for x in ["blocked","not found","deactivated"]):
             bot.answer_callback_query(call.id, "❌ فعّل البوت أولاً! 🤖", show_alert=True)
@@ -714,6 +721,8 @@ def handle_delivery(call):
 
 
 def smart_send(user_id, post_id=None):
+    """حذف ذكي + إرسال كألبوم"""
+
     # 1️⃣ حذف القديم
     old = get_message_history(user_id)
     for mid in old:
@@ -726,7 +735,7 @@ def smart_send(user_id, post_id=None):
     if not configs:
         m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
         save_message_history(user_id, [m.message_id])
-        return False                          # ✅ أضفنا return False
+        return False
 
     ids = []
 
@@ -734,13 +743,14 @@ def smart_send(user_id, post_id=None):
     if len(configs) == 1:
         cfg = configs[0]
         caption = "📄 1/1"
-        if cfg.get("name"): caption += f" • {cfg['name']}"
+        if cfg.get("name"):
+            caption += f" • {cfg['name']}"
         try:
             d = bot.send_document(
                 user_id,
                 cfg["file_id"],
                 caption=caption,
-                parse_mode=None               # ✅ هذا السطر الجديد!
+                parse_mode=None
             )
             ids.append(d.message_id)
         except Exception as e:
@@ -752,8 +762,12 @@ def smart_send(user_id, post_id=None):
             for i, cfg in enumerate(chunk):
                 num = ci * 10 + i + 1
                 caption = f"📄 {num}/{len(configs)}"
-                if cfg.get("name"): caption += f" • {cfg['name']}"
-                media.append(InputMediaDocument(media=cfg["file_id"], caption=caption))
+                if cfg.get("name"):
+                    caption += f" • {cfg['name']}"
+                media.append(InputMediaDocument(
+                    media=cfg["file_id"],
+                    caption=caption
+                ))
             try:
                 msgs = bot.send_media_group(user_id, media)
                 ids.extend([m.message_id for m in msgs])
@@ -763,17 +777,17 @@ def smart_send(user_id, post_id=None):
                         d = bot.send_document(
                             user_id,
                             cfg["file_id"],
-                            parse_mode=None   # ✅ هذا السطر الجديد!
+                            parse_mode=None
                         )
                         ids.append(d.message_id)
                     except: pass
 
     # 4️⃣ حفظ
-    if ids:                                   # ✅ فحص قبل الحفظ
+    if ids:
         save_message_history(user_id, ids)
         record_download(user_id, post_id)
-        return True                           # ✅ نجح
-    return False                              # ✅ فشل
+        return True
+    return False
 
 
 # ══════════════════════════════════════════
@@ -796,11 +810,10 @@ def keep_alive():
 
 
 # ══════════════════════════════════════════
-# 🚀 MAIN (حل 409 النهائي)
+# 🚀 MAIN
 # ══════════════════════════════════════════
 
 def force_clear_session():
-    """إزالة أي جلسة قديمة بالقوة"""
     print("🧹 Step 1: Remove webhook...")
     for i in range(3):
         try:
@@ -809,7 +822,7 @@ def force_clear_session():
         except:
             time.sleep(2)
 
-    print("🧹 Step 2: Wait for old instance to die...")
+    print("🧹 Step 2: Wait for old instance...")
     time.sleep(15)
 
     print("🧹 Step 3: Clear updates...")
@@ -820,23 +833,18 @@ def force_clear_session():
             return True
         except telebot.apihelper.ApiTelegramException as e:
             if "409" in str(e):
-                wait = 5
-                print(f"   ⏳ 409 (attempt {attempt+1}) - wait {wait}s...")
-                time.sleep(wait)
+                print(f"   ⏳ 409 (attempt {attempt+1}) - wait 5s...")
+                time.sleep(5)
             else:
-                print(f"   ❌ {e}")
                 time.sleep(3)
-        except Exception as e:
-            print(f"   ❌ {e}")
+        except:
             time.sleep(3)
-
-    print("   ⚠️ Could not fully clear, trying anyway...")
     return False
 
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("  🤖 VPN Bot V13 - Polling Mode")
+    print("  🤖 VPN Bot V13 Final")
     print("=" * 45)
 
     print("🔧 MongoDB...")
@@ -854,14 +862,13 @@ if __name__ == "__main__":
     print(f"👑 Admins: {ADMIN_IDS}")
     print(f"📢 Channel: {CHANNEL_ID}")
 
-    # ✅ تنظيف الجلسة القديمة
+    print("🧹 Clearing sessions...")
     force_clear_session()
 
-    # ✅ تشغيل الويب سيرفر
     print("🌐 Web server...")
     keep_alive()
 
-    print("🚀 Starting polling...\n")
+    print("🚀 Started!\n")
 
     consecutive_409 = 0
 
@@ -879,38 +886,26 @@ if __name__ == "__main__":
                 consecutive_409 += 1
                 wait = min(consecutive_409 * 5, 30)
                 print(f"⚠️ 409 #{consecutive_409} - wait {wait}s...")
-
                 if consecutive_409 >= 30:
-                    print("❌ Too many 409! Exiting for restart...")
+                    print("❌ Too many 409! Exiting...")
                     break
-
                 time.sleep(wait)
-
-                # محاولة تنظيف
                 try:
                     bot.remove_webhook()
                     time.sleep(1)
                     bot.get_updates(offset=-1, timeout=1)
-                except:
-                    pass
+                except: pass
             else:
                 print(f"❌ API Error: {e}")
                 time.sleep(5)
                 consecutive_409 = 0
-
         except KeyboardInterrupt:
             print("\n🛑 Stopped.")
             break
-
         except Exception as e:
             consecutive_409 = 0
             print(f"❌ {e}")
             traceback.print_exc()
             time.sleep(5)
-            print("🔄 Restarting...")
         else:
             consecutive_409 = 0
-
-
-
-
