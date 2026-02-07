@@ -23,7 +23,6 @@ downloads_col = db["downloads"]
 
 
 def init_db():
-    """تهيئة الفهارس + الإعدادات الافتراضية"""
     try:
         users_col.create_index("user_id", unique=True)
         likes_col.create_index([("user_id", 1), ("message_id", 1)], unique=True)
@@ -34,7 +33,6 @@ def init_db():
         referrals_col.create_index("referrer_id")
         downloads_col.create_index([("user_id", 1), ("post_id", 1)])
 
-        # إعدادات افتراضية
         defaults = {
             "maintenance_mode": False,
             "require_subscription": True,
@@ -57,7 +55,7 @@ def init_db():
 
 
 # ══════════════════════════════════════════
-#  SETTINGS (إعدادات البوت)
+#  SETTINGS
 # ══════════════════════════════════════════
 
 def get_setting(key, default=None):
@@ -78,7 +76,6 @@ def set_setting(key, value):
 # ══════════════════════════════════════════
 
 def add_user(user_id, username=None, first_name=None, referrer_id=None):
-    """إضافة/تحديث مستخدم - يرجع True إذا مستخدم جديد"""
     result = users_col.update_one(
         {"user_id": user_id},
         {
@@ -101,7 +98,6 @@ def add_user(user_id, username=None, first_name=None, referrer_id=None):
 
     is_new = result.upserted_id is not None
 
-    # تسجيل الإحالة
     if is_new and referrer_id:
         try:
             referrals_col.insert_one({
@@ -125,7 +121,6 @@ def get_all_users():
 
 
 def get_all_user_ids():
-    """كل المستخدمين بدون فلتر"""
     docs = users_col.find({}, {"user_id": 1})
     return [d["user_id"] for d in docs]
 
@@ -173,16 +168,12 @@ def get_user_info(user_id):
 
 
 def search_user(user_id):
-    """بحث عن مستخدم بالـ ID"""
     doc = users_col.find_one({"user_id": user_id})
     if not doc:
         return None
 
-    # عدد الإحالات
     ref_count = referrals_col.count_documents({"referrer_id": user_id})
-    # عدد اللايكات
     like_count = likes_col.count_documents({"user_id": user_id})
-    # عدد التحميلات
     dl_count = downloads_col.count_documents({"user_id": user_id})
 
     doc["referral_count"] = ref_count
@@ -192,7 +183,6 @@ def search_user(user_id):
 
 
 def export_users_list():
-    """تصدير قائمة المستخدمين"""
     docs = users_col.find({}).sort("joined_at", -1)
     lines = []
     for d in docs:
@@ -203,7 +193,7 @@ def export_users_list():
 
 
 # ══════════════════════════════════════════
-#  REFERRALS (الإحالات)
+#  REFERRALS
 # ══════════════════════════════════════════
 
 def get_referral_count(user_id):
@@ -217,7 +207,6 @@ def get_referral_leaderboard(limit=10):
         {"$limit": limit}
     ]
     results = list(referrals_col.aggregate(pipeline))
-    # إضافة الأسماء
     for r in results:
         user = users_col.find_one({"user_id": r["_id"]})
         r["name"] = user.get("username") or user.get("first_name", "?") if user else "?"
@@ -298,7 +287,7 @@ def clear_configs():
 
 
 # ══════════════════════════════════════════
-#  DOWNLOADS (تتبع التحميلات)
+#  DOWNLOADS
 # ══════════════════════════════════════════
 
 def record_download(user_id, post_id=None):
@@ -307,13 +296,11 @@ def record_download(user_id, post_id=None):
         "post_id": post_id,
         "at": time.time()
     })
-    # تحديث العداد العام
     settings_col.update_one(
         {"key": "total_downloads"},
         {"$inc": {"value": 1}},
         upsert=True
     )
-    # تحديث عداد المستخدم
     users_col.update_one(
         {"user_id": user_id},
         {"$inc": {"download_count": 1}}
@@ -325,6 +312,8 @@ def get_total_downloads():
 
 
 def get_post_downloads(post_id):
+    if post_id is None:
+        return 0
     return downloads_col.count_documents({"post_id": post_id})
 
 
@@ -388,6 +377,8 @@ def get_stats():
     blocked = users_col.count_documents({"is_blocked": True})
     banned  = users_col.count_documents({"is_banned": True})
     active  = total - blocked - banned
+    if active < 0:
+        active = 0
 
     configs    = configs_col.count_documents({})
     total_dl   = get_setting("total_downloads", 0)
@@ -396,7 +387,6 @@ def get_stats():
     pipeline = [{"$group": {"_id": "$user_id"}}]
     unique_likers = len(list(likes_col.aggregate(pipeline)))
 
-    # مستخدمين آخر 24 ساعة
     day_ago = time.time() - 86400
     new_today = users_col.count_documents({"joined_at": {"$gte": day_ago}})
 
