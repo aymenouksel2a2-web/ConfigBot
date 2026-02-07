@@ -5,47 +5,50 @@ import os
 import time
 
 # ==============================
-# ⚙️ إعدادات الاختبار
+# ⚙️ الإعدادات
 # ==============================
-TOKEN = "8579121219:AAF1D6hqMU8BAr3IPd6rDqcUK7aTeGbYjco"   # ⚠️ ضع التوكن
+TOKEN = "8579121219:AAHQqKm7ZqLwXI-apTV-erlwW0pX-1ovRjA"   # ⚠️ ضع التوكن
 ADMIN_ID = 7846022798           # آيدي الأدمن (أنت)
+CHANNEL_ID = -1003858414969     # ⚠️ ضع آيدي القناة هنا (تأكد أنه صحيح)
 
 bot = telebot.TeleBot(TOKEN)
 
 # ==============================
-# 🕵️‍♂️ كود الجاسوس (المراقب)
+# 📨 1. أمر الإرسال (/config)
 # ==============================
+@bot.message_handler(commands=['config'])
+def send_test_message(message):
+    # حماية: للأدمن فقط
+    if message.from_user.id != ADMIN_ID: return
 
-# هذا الكود يعمل فوراً عند وضع أي ريكشن في القناة
+    try:
+        sent_msg = bot.send_message(
+            CHANNEL_ID, 
+            "🧪 **رسالة اختبار الجاسوس** 🕵️‍♂️\n\nقم بوضع قلب (❤️) على هذه الرسالة الآن لنرى هل البوت يعمل أم لا!",
+            parse_mode="Markdown"
+        )
+        bot.reply_to(message, f"✅ تم الإرسال للقناة بنجاح!\nID الرسالة: {sent_msg.message_id}")
+    except Exception as e:
+        bot.reply_to(message, f"❌ فشل الإرسال للقناة!\nالسبب: {e}\n\nتأكد أن الآيدي صحيح وأن البوت مشرف (Admin).")
+
+# ==============================
+# 🕵️‍♂️ 2. كود الجاسوس (كاشف التفاعل)
+# ==============================
 @bot.message_reaction_handler()
 def i_see_reaction(message):
     try:
-        # 1. جمع المعلومات
-        chat_title = message.chat.title if message.chat.title else "قناة/مجموعة"
-        chat_id = message.chat.id
-        msg_id = message.message_id
-        
-        # معرفة من الفاعل
-        user_name = "مجهول"
-        user_id = "غير معروف"
-        
-        if message.user:
-            user_name = message.user.first_name
-            user_id = message.user.id
-        elif message.actor_chat:
-            user_name = f"قناة/مجموعة ({message.actor_chat.title})"
-            user_id = message.actor_chat.id
+        # بيانات التفاعل
+        user_name = message.user.first_name if message.user else "قناة/مجهول"
+        user_id = message.user.id if message.user else "Unknown"
+        chat_title = message.chat.title if message.chat.title else "شات"
 
-        # 2. إرسال تقرير فوري للأدمن
+        # إرسال تقرير فوري للأدمن
         report = (
-            f"🚨 **كشف تفاعل جديد!**\n\n"
+            f"🚨 **كشف تفاعل جديد!** (ناجح 100%)\n\n"
             f"👤 **الفاعل:** {user_name}\n"
             f"🆔 **الآيدي:** `{user_id}`\n"
             f"📍 **المكان:** {chat_title}\n"
-            f"📄 **رقم الرسالة:** `{msg_id}`\n\n"
-            f"✅ **الحالة:** البوت يرى التفاعل بنجاح!"
         )
-        
         bot.send_message(ADMIN_ID, report, parse_mode="Markdown")
         print(f"Reaction detected from {user_name}")
 
@@ -53,11 +56,22 @@ def i_see_reaction(message):
         bot.send_message(ADMIN_ID, f"❌ حدث خطأ في الكشف: {e}")
 
 # ==============================
+# 🆔 3. كاشف الآيدي (مساعدة)
+# ==============================
+# هذا الجزء سيرسل لك آيدي القناة إذا كتبت أي شيء فيها (لتعرف الآيدي الجديد)
+@bot.message_handler(func=lambda m: True)
+def get_channel_id(message):
+    if message.chat.type == "channel":
+        try:
+            bot.send_message(ADMIN_ID, f"📢 **آيدي هذه القناة هو:**\n`{message.chat.id}`", parse_mode="Markdown")
+        except: pass
+
+# ==============================
 # 🌐 تشغيل السيرفر
 # ==============================
 app = Flask('')
 @app.route('/')
-def home(): return "<b>Spy Bot Running...</b>"
+def home(): return "<b>Spy Bot V2 Running...</b>"
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
@@ -67,5 +81,5 @@ def keep_alive():
 
 if __name__ == "__main__":
     keep_alive()
-    # إزالة الفلاتر للسماع لكل شيء
+    # إزالة الفلاتر (مهم جداً)
     bot.infinity_polling(allowed_updates=None, skip_pending=True)
