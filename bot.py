@@ -141,4 +141,5 @@ if __name__ == "__main__":
     keep_alive()
     try: bot.remove_webhook(); time.sleep(1)
     except: pass
-    bot.infinity_polling(allowed_updates=['message', 'callback_query', 'message_reaction'], timeout=20, long_polling_timeout=10)
+    bot.infinity_polling(skip_pending=True)
+
