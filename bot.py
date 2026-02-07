@@ -227,18 +227,26 @@ def cmd_start(message):
         show_panel(message)
         return
 
-    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
+    # ✅ تفعيل صامت - بدون رسالة ترحيب
+    bot.send_message(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.")
 
-    welcome = (
-        f"مرحباً *{u.first_name}*! 👋\n\n"
-        "🔹 هذا البوت يوزع كونفيجات VPN مجانية\n"
-        "🔹 تابع القناة واضغط ❤️ على البوست\n"
-        "🔹 ثم اضغط 📥 لاستلام الملفات\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"🔗 رابط الإحالة الخاص بك:\n`{ref_link}`\n"
-        "━━━━━━━━━━━━━━━\n"
-        "✅ تم تفعيل البوت بنجاح!"
-    )
+    if is_new:
+        ref_text = ""
+        if referrer:
+            ref_text = f"\n🔗 أحاله: `{referrer}`"
+            try:
+                bot.send_message(referrer,
+                    f"🎉 شخص جديد انضم عبر رابط إحالتك!\n"
+                    f"📊 إحالاتك: `{get_referral_count(referrer)}`")
+            except:
+                pass
+
+        notify_admins(
+            f"👤 *مستخدم جديد!*\n"
+            f"• الاسم: {dname(u)}\n"
+            f"• ID: `{uid}`{ref_text}\n"
+            f"📊 الإجمالي: `{get_users_count()}`"
+        )
 
     bot.send_message(uid, welcome)
 
@@ -922,13 +930,8 @@ def smart_send(user_id, post_id=None):
         save_message_history(user_id, [m.message_id])
         return
 
-    # 3 إرسال
+    # 3 إرسال الملفات فقط بدون رسائل إضافية
     ids = []
-    ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
-
-    h = bot.send_message(user_id,
-        f"✨ *كونفيجاتك ({len(configs)} ملفات):*")
-    ids.append(h.message_id)
 
     for i, cfg in enumerate(configs, 1):
         try:
@@ -940,13 +943,6 @@ def smart_send(user_id, post_id=None):
             ids.append(d.message_id)
         except Exception as e:
             print(f"Send error {user_id}: {e}")
-
-    f = bot.send_message(user_id,
-        "━━━━━━━━━━━━━━━\n"
-        "✅ *تم الإرسال بنجاح!*\n"
-        "🔄 ستُحذف تلقائياً عند توفر ملفات جديدة\n\n"
-        f"🔗 *شارك رابط إحالتك:*\n`{ref_link}`")
-    ids.append(f.message_id)
 
     # 4 حفظ
     save_message_history(user_id, ids)
@@ -1126,3 +1122,4 @@ if __name__ == "__main__":
             print("🔄 Restarting...")
         else:
             retry_count = 0
+
