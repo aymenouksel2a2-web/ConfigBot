@@ -205,6 +205,13 @@ def clear_configs():
 
 
 def record_download(user_id, post_id=None):
+    # 1. التحقق: هل قام المستخدم بالتحميل من هذا البوست سابقاً؟
+    if post_id is not None:
+        # نبحث في قاعدة البيانات عن سجل يجمع هذا المستخدم بهذا البوست
+        if downloads_col.find_one({"user_id": user_id, "post_id": post_id}):
+            return  # 🛑 توقف! لا تحسب الزيادة، اخرج من الدالة فوراً
+
+    # 2. إذا لم يجد تحميلاً سابقاً، أكمل عملية الحساب والإضافة
     downloads_col.insert_one({"user_id": user_id, "post_id": post_id, "at": time.time()})
     settings_col.update_one({"key": "total_downloads"}, {"$inc": {"value": 1}}, upsert=True)
     users_col.update_one({"user_id": user_id}, {"$inc": {"download_count": 1}})
