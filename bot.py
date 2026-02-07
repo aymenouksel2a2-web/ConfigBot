@@ -11,7 +11,7 @@ import time
 # ==========================================
 
 # 1. ضع توكن البوت الخاص بك هنا
-TOKEN = "8579121219:AAG39eYHxYNtYgSFXAUEXgg8_6L8mn1Bcqs"
+TOKEN = "8579121219:AAH3x0eUrmYAjV4htqDRgt81jCU6iUPyBnk"
 
 # 2. آيدي الأدمن (أنت فقط من يتحكم بالبوت)
 ADMIN_ID = 7846022798
@@ -168,3 +168,4 @@ if __name__ == "__main__":
     print(f"Bot started... Admin: {ADMIN_ID} -> Channel: {CHANNEL_ID}")
     
     bot.infinity_polling(allowed_updates=['message', 'callback_query', 'message_reaction'], timeout=20, long_polling_timeout=10)
+
