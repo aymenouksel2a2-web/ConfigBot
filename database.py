@@ -18,16 +18,26 @@ downloads_col = db["downloads"]
 
 
 def init_db():
-    try:
-        users_col.create_index("user_id", unique=True)
-        likes_col.create_index([("user_id", 1), ("message_id", 1)], unique=True)
-        configs_col.create_index("order")
-        history_col.create_index("user_id")
-        posts_col.create_index("message_id", unique=True)
-        referrals_col.create_index("referred_id", unique=True)
-        referrals_col.create_index("referrer_id")
-        downloads_col.create_index([("user_id", 1), ("post_id", 1)])
+    # محاولة إنشاء الفهارس بشكل آمن لتجنب إيقاف البوت بسبب البيانات المكررة القديمة
+    indexes = [
+        (users_col, "user_id", True),
+        (likes_col, [("user_id", 1), ("message_id", 1)], True),
+        (configs_col, "order", False),
+        (history_col, "user_id", False),
+        (posts_col, "message_id", True),
+        (referrals_col, "referred_id", True),
+        (referrals_col, "referrer_id", False),
+        (downloads_col, [("user_id", 1), ("post_id", 1)], False)
+    ]
 
+    for col, keys, is_unique in indexes:
+        try:
+            col.create_index(keys, unique=is_unique)
+        except Exception as e:
+            print(f"⚠️ Index warning for {col.name}: {e}")
+
+    # إعدادات البوت الافتراضية
+    try:
         defaults = {
             "maintenance_mode": False,
             "require_subscription": True,
