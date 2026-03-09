@@ -157,6 +157,8 @@ def get_referral_leaderboard(limit=10):
 
 
 def add_like(user_id, message_id, username):
+    if has_liked(user_id, message_id):
+        return False
     try:
         likes_col.insert_one({
             "user_id": user_id,
