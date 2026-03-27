@@ -18,6 +18,7 @@ downloads_col = db["downloads"]
 
 
 def init_db():
+    # محاولة إنشاء الفهارس بشكل آمن لتجنب إيقاف البوت بسبب البيانات المكررة القديمة
     indexes = [
         (users_col, "user_id", True),
         (likes_col, [("user_id", 1), ("message_id", 1)], True),
@@ -35,13 +36,14 @@ def init_db():
         except Exception as e:
             print(f"⚠️ Index warning for {col.name}: {e}")
 
+    # إعدادات البوت الافتراضية
     try:
         defaults = {
             "maintenance_mode": False,
             "require_subscription": True,
             "custom_post_text": "",
             "total_downloads": 0,
-            "config_duration_hours": 24  # <-- إضافة: المدة الافتراضية للكونفيجات
+            "config_duration_hours": 24   # new setting
         }
         for key, val in defaults.items():
             settings_col.update_one(
@@ -195,16 +197,12 @@ def clear_likes():
     likes_col.delete_many({})
 
 
-# ───────────────────────────────────────────
-# 📂 تعديلات على دوال الكونفيجات (إضافة caption)
-# ───────────────────────────────────────────
-
 def add_config(file_id, file_name=None, caption=None):
     count = configs_col.count_documents({})
     configs_col.insert_one({
         "file_id": file_id,
         "file_name": file_name,
-        "caption": caption,  # <-- إضافة الوصف المخصص
+        "caption": caption,          # new field
         "order": count + 1,
         "added_at": time.time()
     })
@@ -212,9 +210,9 @@ def add_config(file_id, file_name=None, caption=None):
 def get_all_configs():
     docs = configs_col.find({}).sort("order", 1)
     return [{
-        "file_id": d["file_id"], 
-        "name": d.get("file_name"), 
-        "caption": d.get("caption")  # <-- إرجاع الوصف
+        "file_id": d["file_id"],
+        "name": d.get("file_name"),
+        "caption": d.get("caption")
     } for d in docs]
 
 def get_configs_count():
@@ -225,10 +223,13 @@ def clear_configs():
 
 
 def record_download(user_id, post_id=None):
+    # 1. التحقق: هل قام المستخدم بالتحميل من هذا البوست سابقاً؟
     if post_id is not None:
+        # نبحث في قاعدة البيانات عن سجل يجمع هذا المستخدم بهذا البوست
         if downloads_col.find_one({"user_id": user_id, "post_id": post_id}):
-            return
+            return  # 🛑 توقف! لا تحسب الزيادة، اخرج من الدالة فوراً
 
+    # 2. إذا لم يجد تحميلاً سابقاً، أكمل عملية الحساب والإضافة
     downloads_col.insert_one({"user_id": user_id, "post_id": post_id, "at": time.time()})
     settings_col.update_one({"key": "total_downloads"}, {"$inc": {"value": 1}}, upsert=True)
     users_col.update_one({"user_id": user_id}, {"$inc": {"download_count": 1}})
