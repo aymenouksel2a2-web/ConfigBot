@@ -6,7 +6,6 @@ from threading import Thread
 import os
 import time
 import traceback
-import re  # for filename pattern matching
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -29,14 +28,7 @@ from database import (
 
 TOKEN      = os.environ.get("BOT_TOKEN", "YOUR_TOKEN")
 ADMIN_ID   = int(os.environ.get("ADMIN_ID", "7846022798"))
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))  # used for posting
-
-# New channels for subscription
-CHANNEL_1 = "L_XT_IX_OG"
-CHANNEL_2 = "O_C_X7"
-
-# Guard bot
-GUARD_BOT_USERNAME = "ReactGuardbot"
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))
 
 EXTRA_ADMINS = os.environ.get("EXTRA_ADMINS", "")
 ADMIN_IDS = {ADMIN_ID}
@@ -109,18 +101,14 @@ def notify_admins(text):
         except:
             pass
 
-def check_subscription_two(user_id):
-    """Check if user is member of both required channels."""
+def check_subscription(user_id):
     if not get_setting("require_subscription", True):
         return True
     try:
-        member1 = bot.get_chat_member(f"@{CHANNEL_1}", user_id)
-        ok1 = member1.status in ["member", "administrator", "creator"]
-        member2 = bot.get_chat_member(f"@{CHANNEL_2}", user_id)
-        ok2 = member2.status in ["member", "administrator", "creator"]
-        return ok1 and ok2
+        member = bot.get_chat_member(CHANNEL_ID, user_id)
+        return member.status in ["member", "administrator", "creator"]
     except:
-        return False
+        return True
 
 def check_maintenance(call_or_msg, is_callback=False):
     if get_setting("maintenance_mode", False):
@@ -172,12 +160,20 @@ def channel_markup(msg_id=None):
     likes = get_likes_count(msg_id) if msg_id else 0
     dl = get_post_downloads(msg_id) if msg_id else 0
     mk = types.InlineKeyboardMarkup(row_width=2)
+    
+    bot_user = BOT_USERNAME or "ReactGuardbot"
+    
+    if msg_id:
+        receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", url=f"https://t.me/{bot_user}?start=get_{msg_id}")
+    else:
+        receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file")
+        
     mk.row(
         types.InlineKeyboardButton(f"❤️ تفاعل ({likes})", callback_data="do_like"),
-        types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file"))
+        receive_btn)
     mk.add(types.InlineKeyboardButton(
         "🤖 فعّل البوت أولاً",
-        url=f"https://t.me/{BOT_USERNAME}?start=channel"))
+        url=f"https://t.me/{bot_user}?start=channel"))
     return mk
 
 def main_admin_markup():
@@ -189,8 +185,7 @@ def main_admin_markup():
     mk.add("✏️ تخصيص البوست", "🔄 تصفير شامل")
     mk.add("🔍 بحث مستخدم",  "🚫 بان مستخدم")
     mk.add("📋 تصدير المستخدمين", "🏆 المُحيلين")
-    mk.add("⚙️ الإعدادات",    "⏱️ مدة الكونفيج (ساعات)")
-    mk.add("❌ إخفاء")
+    mk.add("⚙️ الإعدادات",    "❌ إخفاء")
     return mk
 
 def back_markup():
@@ -248,30 +243,21 @@ def cmd_start(message):
         bot.send_message(uid, "🚫 تم حظرك.")
         return
 
-    # Check subscription to both channels (unless admin)
-    if not is_admin(uid) and get_setting("require_subscription", True):
-        if not check_subscription_two(uid):
-            mk = types.InlineKeyboardMarkup(row_width=1)
-            mk.add(
-                types.InlineKeyboardButton("📢 قناة 1", url=f"https://t.me/{CHANNEL_1}"),
-                types.InlineKeyboardButton("📢 قناة 2", url=f"https://t.me/{CHANNEL_2}"),
-                types.InlineKeyboardButton("✅ تأكدت", callback_data="check_sub")
-            )
-            bot.send_message(uid,
-                "⚠️ *يرجى الاشتراك في القناتين التاليتين أولاً:*\n"
-                f"1️⃣ @{CHANNEL_1}\n"
-                f"2️⃣ @{CHANNEL_2}\n\n"
-                "بعد الاشتراك اضغط على 'تأكدت'.",
-                parse_mode="Markdown", reply_markup=mk)
-            return
-
     referrer = None
+    get_file_msg_id = None
     args = message.text.split()
-    if len(args) > 1 and args[1].startswith("ref_"):
-        try:
-            referrer = int(args[1].replace("ref_", ""))
-            if referrer == uid: referrer = None
-        except: pass
+    
+    if len(args) > 1:
+        param = args[1]
+        if param.startswith("ref_"):
+            try:
+                referrer = int(param.replace("ref_", ""))
+                if referrer == uid: referrer = None
+            except: pass
+        elif param.startswith("get_"):
+            try:
+                get_file_msg_id = int(param.replace("get_", ""))
+            except: pass
 
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
@@ -279,6 +265,46 @@ def cmd_start(message):
         delete_msg(message.chat.id, message.message_id)
         show_panel(message.chat.id, uid)
         return
+
+    # --- معالجة طلب استلام الملفات من القناة مباشرة ---
+    if get_file_msg_id:
+        last_post = get_last_post()
+        if last_post and get_file_msg_id != last_post["message_id"]:
+            bot.send_message(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.")
+            return
+            
+        if not check_cooldown(uid):
+            bot.send_message(uid, "⏳ انتظر قليلاً...")
+            return
+            
+        if get_setting("maintenance_mode", False):
+            bot.send_message(uid, "🔧 البوت في وضع الصيانة\nيرجى المحاولة لاحقاً...")
+            return
+
+        if get_setting("require_subscription", True):
+            if not check_subscription(uid):
+                bot.send_message(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!")
+                return
+
+        if not has_liked(uid, get_file_msg_id):
+            bot.send_message(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!")
+            return
+
+        bot.send_message(uid, "✅ جاري إرسال الملفات...")
+        try:
+            result = smart_send(uid, get_file_msg_id)
+            if result:
+                safe_edit_markup(CHANNEL_ID, get_file_msg_id, channel_markup(get_file_msg_id))
+            else:
+                bot.send_message(uid, "⚠️ لا توجد ملفات حالياً!")
+        except Exception as e:
+            print(f"Delivery Error: {e}")
+            bot.send_message(uid, "❌ حدث خطأ أثناء إرسال الملفات.")
+            
+        if is_new:
+            notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
+        return
+    # ---------------------------------------------------
 
     bot.send_message(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.")
 
@@ -326,7 +352,7 @@ BTN_LIST = [
     "👥 المتفاعلين", "📣 إذاعة جماعية", "✏️ تخصيص البوست",
     "🔄 تصفير شامل", "🔍 بحث مستخدم", "🚫 بان مستخدم",
     "📋 تصدير المستخدمين", "🏆 المُحيلين", "⚙️ الإعدادات",
-    "⏱️ مدة الكونفيج (ساعات)", "❌ إخفاء"
+    "❌ إخفاء"
 ]
 
 @bot.message_handler(func=lambda m: m.text in BTN_LIST)
@@ -404,8 +430,8 @@ def handle_btns(message):
             "━━━━━━━━━━━━━━━\n"
             "⚠️ سارع قبل انتهاء الصلاحية!")
         try:
-            sent = bot.send_message(CHANNEL_ID, text,
-                parse_mode="Markdown", reply_markup=channel_markup(None))
+            sent = bot.send_message(CHANNEL_ID, text, parse_mode="Markdown")
+            bot.edit_message_reply_markup(CHANNEL_ID, sent.message_id, reply_markup=channel_markup(sent.message_id))
             add_post(sent.message_id, text)
             admin_respond(chat_id, uid,
                 f"✅ *تم النشر!* ID: `{sent.message_id}`\n\n{panel_text(uid)}", back_markup())
@@ -459,13 +485,6 @@ def handle_btns(message):
     elif act == "⚙️ الإعدادات":
         admin_respond(chat_id, uid, "⚙️ *الإعدادات:*", settings_markup())
 
-    elif act == "⏱️ مدة الكونفيج (ساعات)":
-        set_state(uid, "set_duration")
-        current = get_setting("config_duration_hours", 24)
-        admin_respond(chat_id, uid,
-            f"⏱️ *المدة الحالية:* `{current}` ساعة\n\nأرسل المدة الجديدة (عدد صحيح بالساعات)",
-            back_markup())
-
     elif act == "🔄 تصفير شامل":
         admin_respond(chat_id, uid,
             "⚠️ *تصفير شامل!*\n\nحذف: لايكات + ملفات + تحميلات\n❗ المستخدمين وسجل الرسائل *لن تُحذف*",
@@ -488,13 +507,11 @@ def handle_btns(message):
 @bot.callback_query_handler(
     func=lambda c: c.data in [
         "back_panel", "toggle_maintenance",
-        "toggle_subscription", "confirm_reset", "check_sub"
+        "toggle_subscription", "confirm_reset"
     ] or c.data.startswith("ban_") or c.data.startswith("unban_")
 )
 def handle_admin_cb(call):
-    if not is_admin(call.from_user.id) and call.data not in ["check_sub"]:
-        return
-
+    if not is_admin(call.from_user.id): return
     uid = call.from_user.id
     chat_id = call.message.chat.id
 
@@ -519,18 +536,6 @@ def handle_admin_cb(call):
         full_reset()
         bot.answer_callback_query(call.id, "✅ تم!")
         admin_respond(chat_id, uid, f"🔄 *تم التصفير!*\n\n{panel_text(uid)}", back_markup())
-
-    elif call.data == "check_sub":
-        # Check subscription for non-admin users
-        if is_admin(uid) or check_subscription_two(uid):
-            bot.answer_callback_query(call.id, "✅ اشتراكك مؤكد! يمكنك استخدام البوت.")
-            try:
-                bot.delete_message(chat_id, call.message.message_id)
-            except:
-                pass
-            bot.send_message(uid, "✅ تم تأكيد اشتراكك.\n\nاستخدم /start للبدء.")
-        else:
-            bot.answer_callback_query(call.id, "❌ لم تشترك بعد! تأكد من الاشتراك في القناتين.", show_alert=True)
 
     elif call.data.startswith("ban_"):
         ban_user(int(call.data.replace("ban_", "")))
@@ -619,24 +624,6 @@ def handle_ban(message):
         admin_respond(chat_id, uid, "❌ صيغة خاطئة!", back_markup())
 
 
-@bot.message_handler(
-    func=lambda m: is_admin(m.from_user.id) and get_state(m.from_user.id) == "set_duration" and m.text not in BTN_LIST,
-    content_types=["text"])
-def handle_set_duration(message):
-    uid = message.from_user.id
-    chat_id = message.chat.id
-    delete_msg(chat_id, message.message_id)
-    try:
-        hours = int(message.text.strip())
-        if hours < 1:
-            hours = 1
-        set_setting("config_duration_hours", hours)
-        clear_state(uid)
-        admin_respond(chat_id, uid, f"✅ *تم ضبط المدة على {hours} ساعة*\n\n{panel_text(uid)}", back_markup())
-    except:
-        admin_respond(chat_id, uid, "❌ قيمة غير صالحة! أدخل عدداً صحيحاً.", back_markup())
-
-
 # ══════════════════════════════════════════
 # 📣 BROADCAST
 # ══════════════════════════════════════════
@@ -686,38 +673,6 @@ def do_broadcast(message):
 # 📂 FILE UPLOAD
 # ══════════════════════════════════════════
 
-def generate_caption(filename, duration):
-    """Return the appropriate caption based on the filename pattern."""
-    # Pattern 1: 𝗢𝗖𝗫⚡️𝗟𝗫 𝗧𝗜𝗫...𝗬𝗧.dark
-    if re.search(r'^.*𝗢𝗖𝗫⚡️𝗟𝗫 𝗧𝗜𝗫.*𝗬𝗧\.dark$', filename):
-        return (
-            "كونفيج كسر محدودية عرض يوتيوب \n"
-            "خاص بتطبيق DARK TUNNEL\n"
-            f"المدة {duration} ساعات"
-        )
-    # Pattern 2: 𝗢𝗖𝗫...𝗟𝗫 𝗧𝗜𝗫_𝗙𝗥𝗘𝗘_𝗢𝗥𝗗𝗢+𝗗𝗝𝗭𝗬🍒.dark
-    if re.search(r'^.*𝗢𝗖𝗫.*𝗟𝗫 𝗧𝗜𝗫_𝗙𝗥𝗘𝗘_𝗢𝗥𝗗𝗢\+𝗗𝗝𝗭𝗬🍒\.dark$', filename):
-        return (
-            "كونفيج بدون عرض مجاني شريحة جيزي \n"
-            "خاص بتطبيق DARK TUNNEL\n"
-            f"المدة {duration} ساعات"
-        )
-    # Pattern 3: OCX⚡️LX...YT.ehi
-    if re.search(r'^.*OCX⚡️LX.*YT\.ehi$', filename):
-        return (
-            "كونفيج كسر محدودية عرض يوتيوب \n"
-            "خاص بتطبيق HTTP INJECTOR\n"
-            f"المدة {duration} ساعات"
-        )
-    # Pattern 4: ORDO🍒DJZY...FREE.ehi
-    if re.search(r'^.*ORDO🍒DJZY.*FREE\.ehi$', filename):
-        return (
-            "كونفيج بدون عرض مجاني \n"
-            "خاص بتطبيق HTTP INJECTOR\n"
-            f"المدة {duration} ساعات"
-        )
-    return None
-
 @bot.message_handler(content_types=["document"])
 def handle_doc(message):
     if not is_admin(message.from_user.id): return
@@ -730,9 +685,7 @@ def handle_doc(message):
         return
 
     fname = message.document.file_name or "file"
-    duration = get_setting("config_duration_hours", 24)
-    caption = generate_caption(fname, duration)
-    add_config(message.document.file_id, fname, caption)
+    add_config(message.document.file_id, fname)
     delete_msg(chat_id, message.message_id)
     admin_respond(chat_id, uid,
         f"📂 *وضع الرفع*\n━━━━━━━━━━━━━━━\n✅ `{fname}`\n📊 الإجمالي: `{get_configs_count()}`\n\n📎 أرسل المزيد أو ✅ إنهاء",
@@ -800,28 +753,31 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
-    # Check subscription to both channels (unless admin)
-    if not is_admin(uid) and get_setting("require_subscription", True):
-        if not check_subscription_two(uid):
-            bot.answer_callback_query(call.id, "⚠️ يرجى الاشتراك في القناتين أولاً!", show_alert=True)
+    if is_admin(uid):
+        try:
+            result = smart_send(uid, mid)
+            if result:
+                bot.answer_callback_query(call.id, "👑 تم!")
+            else:
+                bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
+        except Exception as e:
+            print(f"Admin delivery error: {e}")
+            bot.answer_callback_query(call.id, f"❌ {str(e)[:80]}", show_alert=True)
+        return
+
+    if get_setting("require_subscription", True):
+        if not check_subscription(uid):
+            bot.answer_callback_query(call.id, "⚠️ اشترك بالقناة أولاً!", show_alert=True)
             return
 
-    # Send redirect to guard bot
-    guard_markup = types.InlineKeyboardMarkup()
-    guard_markup.add(types.InlineKeyboardButton(
-        "🤖 اذهب إلى البوت", url=f"https://t.me/{GUARD_BOT_USERNAME}"
-    ))
-    bot.send_message(uid,
-        "🔗 *يرجى التفاعل مع البوت التالي أولاً:*\n"
-        f"@{GUARD_BOT_USERNAME}\n\n"
-        "بعد الانتهاء، سيتم إرسال الملفات.",
-        reply_markup=guard_markup)
+    if not has_liked(uid, mid):
+        bot.answer_callback_query(call.id, "⛔ اضغط ❤️ أولاً!", show_alert=True)
+        return
 
-    # Now send the files
     try:
         result = smart_send(uid, mid)
         if result:
-            bot.answer_callback_query(call.id, "✅ تم إرسال الملفات!")
+            bot.answer_callback_query(call.id, "✅ تم!")
             safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
         else:
             bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
@@ -836,7 +792,7 @@ def handle_delivery(call):
 
 
 def smart_send(user_id, post_id=None):
-    """حذف ذكي + إرسال كألبوم، مع استخدام التسميات المخزنة."""
+    """حذف ذكي + إرسال كألبوم"""
 
     # 1️⃣ حذف القديم
     old = get_message_history(user_id)
@@ -853,13 +809,12 @@ def smart_send(user_id, post_id=None):
         return False
 
     ids = []
-    total = len(configs)
 
     # 3️⃣ إرسال
-    if total == 1:
+    if len(configs) == 1:
         cfg = configs[0]
-        caption = cfg.get("caption") or f"📄 1/1"
-        if cfg.get("name") and not cfg.get("caption"):
+        caption = "📄 1/1"
+        if cfg.get("name"):
             caption += f" • {cfg['name']}"
         try:
             d = bot.send_document(
@@ -872,16 +827,14 @@ def smart_send(user_id, post_id=None):
         except Exception as e:
             print(f"Single file error: {e}")
     else:
-        chunks = [configs[i:i+10] for i in range(0, total, 10)]
+        chunks = [configs[i:i+10] for i in range(0, len(configs), 10)]
         for ci, chunk in enumerate(chunks):
             media = []
             for i, cfg in enumerate(chunk):
                 num = ci * 10 + i + 1
-                caption = cfg.get("caption")
-                if not caption:
-                    caption = f"📄 {num}/{total}"
-                    if cfg.get("name"):
-                        caption += f" • {cfg['name']}"
+                caption = f"📄 {num}/{len(configs)}"
+                if cfg.get("name"):
+                    caption += f" • {cfg['name']}"
                 media.append(InputMediaDocument(
                     media=cfg["file_id"],
                     caption=caption
@@ -890,13 +843,11 @@ def smart_send(user_id, post_id=None):
                 msgs = bot.send_media_group(user_id, media)
                 ids.extend([m.message_id for m in msgs])
             except:
-                # fallback to individual sending
                 for cfg in chunk:
                     try:
                         d = bot.send_document(
                             user_id,
                             cfg["file_id"],
-                            caption=cfg.get("caption", ""),
                             parse_mode=None
                         )
                         ids.append(d.message_id)
