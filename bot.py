@@ -758,7 +758,7 @@ def handle_delivery(call):
         try:
             result = smart_send(uid, mid)
             if result:
-                bot.answer_callback_query(call.id, "👑 تم التسليم وجاري التحويل!", url="https://t.me/ReactGuardbot")
+                bot.answer_callback_query(call.id, "👑 تم التسليم وجاري التحويل!", url=f"https://t.me/{BOT_USERNAME}?start=get")
             else:
                 bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
         except Exception as e:
@@ -778,7 +778,7 @@ def handle_delivery(call):
     try:
         result = smart_send(uid, mid)
         if result:
-            bot.answer_callback_query(call.id, "✅ تم التسليم وجاري التحويل!", url="https://t.me/ReactGuardbot")
+            bot.answer_callback_query(call.id, "✅ تم التسليم وجاري التحويل!", url=f"https://t.me/{BOT_USERNAME}?start=get")
             safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
         else:
             bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
