@@ -1,4 +1,3 @@
-bot.py
 import telebot
 from telebot import types
 from telebot.types import InputMediaDocument
@@ -7,6 +6,7 @@ from threading import Thread
 import os
 import time
 import traceback
+import re  # <-- إضافة للتعبيرات النمطية
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -31,11 +31,13 @@ TOKEN      = os.environ.get("BOT_TOKEN", "YOUR_TOKEN")
 ADMIN_ID   = int(os.environ.get("ADMIN_ID", "7846022798"))
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))
 
-# ✅ القناتين الجديدة للفحص
-CHANNELS = [
-    -1002060116718, # @L_XT_IX_OG
-    -1002197745123  # @O_C_X7
+# ─── إضافة: بوت التحويل والقنوات المطلوبة ───
+REACTGUARD_BOT = "ReactGuardbot"  # <-- اسم المستخدم للبوت بدون @
+REQUIRED_CHANNELS = [
+    "@L_XT_IX_OG",  # <-- القناة الأولى
+    "@O_C_X7"       # <-- القناة الثانية
 ]
+# ─────────────────────────────────────────────
 
 EXTRA_ADMINS = os.environ.get("EXTRA_ADMINS", "")
 ADMIN_IDS = {ADMIN_ID}
@@ -108,17 +110,18 @@ def notify_admins(text):
         except:
             pass
 
+# ─── تعديل: التحقق من قناتين ───
 def check_subscription(user_id):
     if not get_setting("require_subscription", True):
         return True
-    for channel in CHANNELS:
-        try:
-            member = bot.get_chat_member(channel, user_id)
+    try:
+        for ch in REQUIRED_CHANNELS:
+            member = bot.get_chat_member(ch, user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
-        except:
-            pass
-    return True
+        return True
+    except:
+        return False
 
 def check_maintenance(call_or_msg, is_callback=False):
     if get_setting("maintenance_mode", False):
@@ -137,32 +140,35 @@ def safe_edit_markup(chat_id, message_id, markup):
     except:
         return False
 
-# ✅ دالة الاوصاف التلقائية
-def get_auto_caption(filename):
-    duration = get_setting("config_duration", 24)
-
-    if filename.endswith("YT.dark"):
-        return f"""كونفيج كسر محدودية عرض يوتيوب 
-خاص بتطبيق DARK TUNNEL
-المدة  {duration} ساعات"""
-
-    elif filename.endswith("FREE_ORDO+DJZY🍒.dark"):
-        return f"""كونفيج بدون عرض مجاني شريحة جيزي 
-خاص بتطبيق DARK TUNNEL
-المدة  {duration} ساعات"""
-
-    elif filename.endswith("YT.ehi"):
-        return f"""كونفيج كسر محدودية عرض يوتيوب 
-خاص بتطبيق HTTP INJECTOR
-المدة  {duration} ساعات"""
-
-    elif filename.endswith("FREE.ehi"):
-        return f"""كونفيج بدون عرض مجاني شريحة جيزي 
-خاص بتطبيق HTTP INJECTOR
-المدة  {duration} ساعات"""
-
-    else:
-        return filename
+# ─── إضافة: توليد الوصف بناءً على اسم الملف ───
+def generate_config_caption(filename):
+    """
+    تحليل اسم الملف وتوليد الوصف المناسب بناءً على الأنماط المحددة
+    """
+    if not filename:
+        return None
+    
+    hours = get_setting("config_duration_hours", 24)
+    fname_lower = filename.lower()
+    
+    # النمط 1: YT + .dark (كسر محدودية يوتيوب - Dark Tunnel)
+    if ".dark" in fname_lower and ("yt" in fname_lower or "youtube" in fname_lower):
+        return f"كونفيج كسر محدودية عرض يوتيوب\nخاص بتطبيق DARK TUNNEL\nالمدة {hours} ساعات"
+    
+    # النمط 2: ORDO + DJZY + .dark (شريحة جيزي - Dark Tunnel)
+    # ملاحظة: DJZY هي اختصار Djezzy
+    elif ".dark" in fname_lower and ("ordo" in fname_lower or "djzy" in fname_lower or "free" in fname_lower):
+        return f"كونفيج بدون عرض مجاني شريحة جيزي\nخاص بتطبيق DARK TUNNEL\nالمدة {hours} ساعات"
+    
+    # النمط 3: YT + .ehi (كسر محدودية يوتيوب - HTTP Injector)
+    elif ".ehi" in fname_lower and ("yt" in fname_lower or "youtube" in fname_lower):
+        return f"كونفيج كسر محدودية عرض يوتيوب\nخاص بتطبيق HTTP INJECTOR\nالمدة {hours} ساعات"
+    
+    # النمط 4: ORDO + DJZY + .ehi (شريحة جيزي - HTTP Injector)
+    elif ".ehi" in fname_lower and ("ordo" in fname_lower or "djzy" in fname_lower):
+        return f"كونفيج بدون عرض مجاني شريحة جيزي\nخاص بتطبيق HTTP INJECTOR\nالمدة {hours} ساعات"
+    
+    return None
 
 
 # ══════════════════════════════════════════
@@ -199,7 +205,7 @@ def channel_markup(msg_id=None):
     mk = types.InlineKeyboardMarkup(row_width=2)
     mk.row(
         types.InlineKeyboardButton(f"❤️ تفاعل ({likes})", callback_data="do_like"),
-        types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file"))
+        types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file"))  # نحتفظ بنفس الـ callback
     mk.add(types.InlineKeyboardButton(
         "🤖 فعّل البوت أولاً",
         url=f"https://t.me/{BOT_USERNAME}?start=channel"))
@@ -214,7 +220,8 @@ def main_admin_markup():
     mk.add("✏️ تخصيص البوست", "🔄 تصفير شامل")
     mk.add("🔍 بحث مستخدم",  "🚫 بان مستخدم")
     mk.add("📋 تصدير المستخدمين", "🏆 المُحيلين")
-    mk.add("⚙️ الإعدادات",    "❌ إخفاء")
+    mk.add("⏱️ تحديد المدة", "⚙️ الإعدادات")  # <-- إضافة زر المدة
+    mk.add("❌ إخفاء")
     return mk
 
 def back_markup():
@@ -225,7 +232,7 @@ def back_markup():
 def settings_markup():
     maint = get_setting("maintenance_mode", False)
     sub   = get_setting("require_subscription", True)
-    duration = get_setting("config_duration", 24)
+    hours = get_setting("config_duration_hours", 24)  # <-- عرض المدة الحالية
     mk = types.InlineKeyboardMarkup(row_width=1)
     mk.add(types.InlineKeyboardButton(
         f"🔧 الصيانة: {'🟢 مفعل' if maint else '🔴 مغلق'}",
@@ -234,8 +241,8 @@ def settings_markup():
         f"📢 فحص الاشتراك: {'🟢 مفعل' if sub else '🔴 مغلق'}",
         callback_data="toggle_subscription"))
     mk.add(types.InlineKeyboardButton(
-        f"⏱️ مدة الكونفيجات: {duration} ساعة",
-        callback_data="change_duration"))
+        f"⏱️ المدة الحالية: {hours} ساعة",  # <-- عرض المدة
+        callback_data="show_duration"))
     mk.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_panel"))
     return mk
 
@@ -246,9 +253,18 @@ def reset_markup():
         types.InlineKeyboardButton("❌ إلغاء", callback_data="back_panel"))
     return mk
 
+# ─── إضافة: markup لطلب الاشتراك ───
+def subscription_markup():
+    mk = types.InlineKeyboardMarkup(row_width=1)
+    mk.add(types.InlineKeyboardButton("📢 القناة الأولى", url="https://t.me/L_XT_IX_OG"))
+    mk.add(types.InlineKeyboardButton("📢 القناة الثانية", url="https://t.me/O_C_X7"))
+    mk.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_subscription"))
+    return mk
+
 def panel_text(uid=None):
     s = get_stats()
     state = get_state(uid) if uid else None
+    hours = get_setting("config_duration_hours", 24)  # <-- عرض المدة في اللوحة
     state_txt = f"\n📝 الحالة: `{state}`" if state else ""
     return (
         "👑 *لوحة التحكم*\n"
@@ -258,6 +274,7 @@ def panel_text(uid=None):
         f"❤️ متفاعلين: `{s['unique_likers']}`\n"
         f"📥 تحميلات: `{s['total_downloads']}`\n"
         f"🔗 إحالات: `{s['total_referrals']}`\n"
+        f"⏱️ مدة الكونفيج: `{hours}` ساعة\n"  # <-- إضافة
         f"🆕 اليوم: `{s['new_today']}`"
         f"{state_txt}\n"
         "━━━━━━━━━━━━━━━━━━━")
@@ -284,17 +301,20 @@ def cmd_start(message):
             if referrer == uid: referrer = None
         except: pass
 
-    # ✅ تسليم الملفات تلقائيا اذا جاء من بوت رياكت
-    if len(args) > 1 and args[1].startswith("get_"):
-        try:
-            target_uid = int(args[1].replace("get_", ""))
-            if target_uid == uid:
-                smart_send(uid)
-        except:
-            pass
-
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
+    # ─── إضافة: التحقق من الاشتراك للمستخدمين العاديين ───
+    if not is_admin(uid):
+        if not check_subscription(uid):
+            bot.send_message(uid, 
+                "⚠️ *يجب الاشتراك في القناتين أولاً:*\n\n"
+                "1️⃣ @L_XT_IX_OG\n"
+                "2️⃣ @O_C_X7\n\n"
+                "اضغط على الأزرار بالأسفل للاشتراك، ثم اضغط تحقق.",
+                parse_mode="Markdown",
+                reply_markup=subscription_markup())
+            return
+    
     if is_admin(uid):
         delete_msg(message.chat.id, message.message_id)
         show_panel(message.chat.id, uid)
@@ -346,6 +366,7 @@ BTN_LIST = [
     "👥 المتفاعلين", "📣 إذاعة جماعية", "✏️ تخصيص البوست",
     "🔄 تصفير شامل", "🔍 بحث مستخدم", "🚫 بان مستخدم",
     "📋 تصدير المستخدمين", "🏆 المُحيلين", "⚙️ الإعدادات",
+    "⏱️ تحديد المدة",  # <-- إضافة
     "❌ إخفاء"
 ]
 
@@ -479,6 +500,14 @@ def handle_btns(message):
     elif act == "⚙️ الإعدادات":
         admin_respond(chat_id, uid, "⚙️ *الإعدادات:*", settings_markup())
 
+    # ─── إضافة: معالج زر تحديد المدة ───
+    elif act == "⏱️ تحديد المدة":
+        set_state(uid, "set_duration")
+        current = get_setting("config_duration_hours", 24)
+        admin_respond(chat_id, uid,
+            f"⏱️ *تحديد مدة الكونفيجات*\n\nالحالي: `{current}` ساعة\n\nأرسل الرقم الجديد (مثال: 48)",
+            back_markup())
+
     elif act == "🔄 تصفير شامل":
         admin_respond(chat_id, uid,
             "⚠️ *تصفير شامل!*\n\nحذف: لايكات + ملفات + تحميلات\n❗ المستخدمين وسجل الرسائل *لن تُحذف*",
@@ -501,11 +530,22 @@ def handle_btns(message):
 @bot.callback_query_handler(
     func=lambda c: c.data in [
         "back_panel", "toggle_maintenance",
-        "toggle_subscription", "confirm_reset", "change_duration"
+        "toggle_subscription", "confirm_reset",
+        "check_subscription", "show_duration"  # <-- إضافة
     ] or c.data.startswith("ban_") or c.data.startswith("unban_")
 )
 def handle_admin_cb(call):
-    if not is_admin(call.from_user.id): return
+    if not is_admin(call.from_user.id) and call.data not in ["check_subscription"]:  # السماح للمستخدمين بالتحقق
+        # التحقق من check_subscription للمستخدمين العاديين
+        if call.data == "check_subscription":
+            if check_subscription(call.from_user.id):
+                bot.answer_callback_query(call.id, "✅ تم التحقق! يمكنك الآن استخدام البوت.")
+                bot.send_message(call.from_user.id, "✅ أصبحت مشتركاً في القناتين! اضغط /start")
+            else:
+                bot.answer_callback_query(call.id, "❌ لم تشترك بعد!", show_alert=True)
+            return
+        return
+    
     uid = call.from_user.id
     chat_id = call.message.chat.id
 
@@ -526,15 +566,14 @@ def handle_admin_cb(call):
         bot.answer_callback_query(call.id, f"📢 {'ON' if not cur else 'OFF'}")
         admin_respond(chat_id, uid, "⚙️ *الإعدادات:*", settings_markup())
 
-    elif call.data == "change_duration":
-        set_state(uid, "change_duration")
-        bot.answer_callback_query(call.id)
-        admin_respond(chat_id, uid, "⏱️ أرسل المدة الجديدة بالساعات:", back_markup())
-
     elif call.data == "confirm_reset":
         full_reset()
         bot.answer_callback_query(call.id, "✅ تم!")
         admin_respond(chat_id, uid, f"🔄 *تم التصفير!*\n\n{panel_text(uid)}", back_markup())
+
+    elif call.data == "show_duration":
+        # مجرد عرض، لا شيء
+        bot.answer_callback_query(call.id, "استخدم زر ⏱️ تحديد المدة لتغييرها")
 
     elif call.data.startswith("ban_"):
         ban_user(int(call.data.replace("ban_", "")))
@@ -549,20 +588,25 @@ def handle_admin_cb(call):
 # 📝 STATE HANDLERS
 # ══════════════════════════════════════════
 
+# ─── إضافة: معالج تحديد المدة ───
 @bot.message_handler(
-    func=lambda m: is_admin(m.from_user.id) and get_state(m.from_user.id) == "change_duration" and m.text not in BTN_LIST,
+    func=lambda m: is_admin(m.from_user.id) and get_state(m.from_user.id) == "set_duration" and m.text not in BTN_LIST,
     content_types=["text"])
-def handle_change_duration(message):
+def handle_set_duration(message):
     uid = message.from_user.id
     chat_id = message.chat.id
     delete_msg(chat_id, message.message_id)
     clear_state(uid)
+    
     try:
-        duration = int(message.text.strip())
-        set_setting("config_duration", duration)
-        admin_respond(chat_id, uid, f"✅ تم تغيير المدة الى {duration} ساعة\n\n{panel_text(uid)}", back_markup())
-    except:
-        admin_respond(chat_id, uid, "❌ ارسل رقم فقط!", back_markup())
+        hours = int(message.text.strip())
+        if hours < 1 or hours > 720:  # حد أقصى شهر
+            admin_respond(chat_id, uid, "❌ يجب أن تكون المدة بين 1 و 720 ساعة!", back_markup())
+            return
+        set_setting("config_duration_hours", hours)
+        admin_respond(chat_id, uid, f"✅ *تم تحديد المدة إلى {hours} ساعة*\n\n{panel_text(uid)}", back_markup())
+    except ValueError:
+        admin_respond(chat_id, uid, "��� أرسل رقماً صحيحاً!", back_markup())
 
 
 @bot.message_handler(
@@ -685,7 +729,7 @@ def do_broadcast(message):
 
 
 # ══════════════════════════════════════════
-# 📂 FILE UPLOAD
+# 📂 FILE UPLOAD (معدل مع الوصف التلقائي)
 # ══════════════════════════════════════════
 
 @bot.message_handler(content_types=["document"])
@@ -700,10 +744,17 @@ def handle_doc(message):
         return
 
     fname = message.document.file_name or "file"
-    add_config(message.document.file_id, fname)
+    
+    # ─── توليد الوصف تلقائياً ───
+    caption = generate_config_caption(fname)
+    
+    add_config(message.document.file_id, fname, caption)
     delete_msg(chat_id, message.message_id)
+    
+    # عرض معاينة للوصف إذا وجد
+    preview = f"\n📝 *الوصف:*\n{caption[:100]}..." if caption else ""
     admin_respond(chat_id, uid,
-        f"📂 *وضع الرفع*\n━━━━━━━━━━━━━━━\n✅ `{fname}`\n📊 الإجمالي: `{get_configs_count()}`\n\n📎 أرسل المزيد أو ✅ إنهاء",
+        f"📂 *وضع الرفع*\n━━━━━━━━━━━━━━━\n✅ `{fname}`{preview}\n📊 الإجمالي: `{get_configs_count()}`\n\n📎 أرسل المزيد أو ✅ إنهاء",
         back_markup())
 
 
@@ -743,7 +794,7 @@ def handle_like(call):
 
 
 # ══════════════════════════════════════════
-# 📥 DELIVERY
+# 📥 DELIVERY (معدل: إضافة التحويل إلى ReactGuard)
 # ══════════════════════════════════════════
 
 @bot.callback_query_handler(func=lambda c: c.data == "get_file")
@@ -764,6 +815,23 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
+    if is_admin(uid):
+        try:
+            result = smart_send(uid, mid)
+            if result:
+                # ─── التحويل إلى ReactGuardbot بعد الإرسال ───
+                bot.answer_callback_query(
+                    call.id, 
+                    "👑 تم! جاري تحويلك...",
+                    url=f"https://t.me/{REACTGUARD_BOT}"
+                )
+            else:
+                bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
+        except Exception as e:
+            print(f"Admin delivery error: {e}")
+            bot.answer_callback_query(call.id, f"❌ {str(e)[:80]}", show_alert=True)
+        return
+
     if get_setting("require_subscription", True):
         if not check_subscription(uid):
             bot.answer_callback_query(call.id, "⚠️ اشترك في القناتين أولاً!", show_alert=True)
@@ -773,22 +841,37 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "⛔ اضغط ❤️ أولاً!", show_alert=True)
         return
 
-    # ✅ التعديل الجديد: تحويل مباشر الى بوت رياكت
-    bot.answer_callback_query(call.id, url=f"https://t.me/ReactGuardbot?start=get_{uid}")
-    return
+    try:
+        result = smart_send(uid, mid)
+        if result:
+            safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
+            # ─── التحويل إلى ReactGuardbot بعد الإرسال بنجاح ───
+            bot.answer_callback_query(
+                call.id, 
+                "✅ تم! جاري تحويلك إلى @ReactGuardbot...",
+                url=f"https://t.me/{REACTGUARD_BOT}"
+            )
+        else:
+            bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
+    except telebot.apihelper.ApiTelegramException as e:
+        if any(x in str(e).lower() for x in ["blocked","not found","deactivated"]):
+            bot.answer_callback_query(call.id, "❌ فعّل البوت أولاً! 🤖", show_alert=True)
+        else:
+            bot.answer_callback_query(call.id, "❌ خطأ", show_alert=True)
+    except Exception as e:
+        print(f"Delivery Error: {e}")
+        bot.answer_callback_query(call.id, "❌ خطأ", show_alert=True)
 
 
 def smart_send(user_id, post_id=None):
-    """حذف ذكي + إرسال كألبوم + اوصاف تلقائية"""
+    """حذف ذكي + إرسال كألبوم (معدل لاستخدام الوصف المخصص)"""
 
-    # 1️⃣ حذف القديم
     old = get_message_history(user_id)
     for mid in old:
         try: bot.delete_message(user_id, mid)
         except: pass
     clear_message_history(user_id)
 
-    # 2️⃣ جلب الملفات
     configs = get_all_configs()
     if not configs:
         m = bot.send_message(user_id, "⚠️ لا توجد ملفات حالياً.")
@@ -797,10 +880,12 @@ def smart_send(user_id, post_id=None):
 
     ids = []
 
-    # 3️⃣ إرسال
     if len(configs) == 1:
         cfg = configs[0]
-        caption = get_auto_caption(cfg.get("name", ""))
+        # ─── استخدام الوصف المخصص إذا وجد ───
+        caption = cfg.get("caption") or f"📄 1/1"
+        if not cfg.get("caption") and cfg.get("name"):
+            caption += f" • {cfg['name']}"
         try:
             d = bot.send_document(
                 user_id,
@@ -816,7 +901,16 @@ def smart_send(user_id, post_id=None):
         for ci, chunk in enumerate(chunks):
             media = []
             for i, cfg in enumerate(chunk):
-                caption = get_auto_caption(cfg.get("name", ""))
+                num = ci * 10 + i + 1
+                # ─── استخدام الوصف المخصص للملف الأخير فقط (أو الأول) ───
+                # في ألبوم تلجرام، فقط العنصر الأول يظهر الكابشن
+                if i == 0:  # نضع الوصف على أول عنصر في المجموعة
+                    caption = cfg.get("caption") or f"📄 {num}/{len(configs)}"
+                    if not cfg.get("caption") and cfg.get("name"):
+                        caption += f" • {cfg['name']}"
+                else:
+                    caption = cfg.get("caption") or ""  # باقي العناصر بدون كابشن أو بنفس المنطق
+                
                 media.append(InputMediaDocument(
                     media=cfg["file_id"],
                     caption=caption
@@ -827,17 +921,14 @@ def smart_send(user_id, post_id=None):
             except:
                 for cfg in chunk:
                     try:
-                        caption = get_auto_caption(cfg.get("name", ""))
                         d = bot.send_document(
                             user_id,
                             cfg["file_id"],
-                            caption=caption,
                             parse_mode=None
                         )
                         ids.append(d.message_id)
                     except: pass
 
-    # 4️⃣ حفظ
     if ids:
         save_message_history(user_id, ids)
         record_download(user_id, post_id)
@@ -899,7 +990,7 @@ def force_clear_session():
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("  🤖 VPN Bot V13 Modified")
+    print("  🤖 VPN Bot V13 Final - Modified")
     print("=" * 45)
 
     print("🔧 MongoDB...")
@@ -915,7 +1006,8 @@ if __name__ == "__main__":
         exit(1)
 
     print(f"👑 Admins: {ADMIN_IDS}")
-    print(f"📢 Channel: {CHANNEL_ID}")
+    print(f"📢 Channels: {REQUIRED_CHANNELS}")
+    print(f"🔗 Redirect Bot: @{REACTGUARD_BOT}")
 
     print("🧹 Clearing sessions...")
     force_clear_session()
