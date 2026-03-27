@@ -6,6 +6,7 @@ from threading import Thread
 import os
 import time
 import traceback
+import re
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -29,6 +30,9 @@ from database import (
 TOKEN      = os.environ.get("BOT_TOKEN", "YOUR_TOKEN")
 ADMIN_ID   = int(os.environ.get("ADMIN_ID", "7846022798"))
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))
+
+# قنوات الاشتراك الإجباري
+REQUIRED_CHANNELS = ["@L_XT_IX_OG", "@O_C_X7"]
 
 EXTRA_ADMINS = os.environ.get("EXTRA_ADMINS", "")
 ADMIN_IDS = {ADMIN_ID}
@@ -104,11 +108,17 @@ def notify_admins(text):
 def check_subscription(user_id):
     if not get_setting("require_subscription", True):
         return True
-    try:
-        member = bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
+    if is_admin(user_id):
         return True
+    
+    for ch in REQUIRED_CHANNELS:
+        try:
+            member = bot.get_chat_member(ch, user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False
+        except Exception as e:
+            return False
+    return True
 
 def check_maintenance(call_or_msg, is_callback=False):
     if get_setting("maintenance_mode", False):
@@ -127,6 +137,20 @@ def safe_edit_markup(chat_id, message_id, markup):
     except:
         return False
 
+def get_custom_caption(filename):
+    duration = get_setting("config_duration", 24)
+    if not filename:
+        return None
+
+    if re.search(r"𝗢𝗖𝗫⚡️𝗟𝗫 𝗧𝗜𝗫.*𝗬𝗧\.dark", filename):
+        return f"كونفيج كسر محدودية عرض يوتيوب \nخاص بتطبيق DARK TUNNEL\nالمدة  {duration} ساعات"
+    if re.search(r"𝗢𝗖𝗫.*𝗟𝗫 𝗧𝗜𝗫_𝗙𝗥𝗘𝗘_𝗢𝗥𝗗𝗢\+𝗗𝗝𝗭𝗬🍒\.dark", filename):
+        return f"كونفيج بدون عرض مجاني شريحة جيزي \nخاص بتطبيق DARK TUNNEL\nالمدة  {duration} ساعات"
+    if re.search(r"OCX⚡️LX.*YT\.ehi", filename):
+        return f"كونفيج كسر محدودية عرض يوتيوب \nخاص بتطبيق HTTP INJECTOR\nالمدة  {duration} ساعات"
+    if re.search(r"ORDO🍒DJZY.*FREE\.ehi", filename):
+        return f"كونفيج بدون عرض مجاني شريحة جيزي \nخاص بتطبيق HTTP INJECTOR\nالمدة  {duration} ساعات"
+    return None
 
 # ══════════════════════════════════════════
 # 📨 نظام الرسالة الواحدة
@@ -177,7 +201,8 @@ def main_admin_markup():
     mk.add("✏️ تخصيص البوست", "🔄 تصفير شامل")
     mk.add("🔍 بحث مستخدم",  "🚫 بان مستخدم")
     mk.add("📋 تصدير المستخدمين", "🏆 المُحيلين")
-    mk.add("⚙️ الإعدادات",    "❌ إخفاء")
+    mk.add("⏱️ مدة الكونفيجات", "⚙️ الإعدادات")
+    mk.add("❌ إخفاء")
     return mk
 
 def back_markup():
@@ -234,6 +259,15 @@ def cmd_start(message):
     if is_banned(uid) and not is_admin(uid):
         bot.send_message(uid, "🚫 تم حظرك.")
         return
+
+    if not is_admin(uid) and get_setting("require_subscription", True):
+        if not check_subscription(uid):
+            mk = types.InlineKeyboardMarkup(row_width=1)
+            mk.add(types.InlineKeyboardButton("القناة الأولى 📢", url="https://t.me/L_XT_IX_OG"))
+            mk.add(types.InlineKeyboardButton("القناة الثانية 📢", url="https://t.me/O_C_X7"))
+            mk.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", url=f"https://t.me/{BOT_USERNAME}?start=channel"))
+            bot.send_message(uid, "⚠️ عذراً، يجب عليك الاشتراك في قنواتنا أولاً لتتمكن من استخدام البوت واستلام الملفات:", reply_markup=mk)
+            return
 
     referrer = None
     args = message.text.split()
@@ -296,7 +330,7 @@ BTN_LIST = [
     "👥 المتفاعلين", "📣 إذاعة جماعية", "✏️ تخصيص البوست",
     "🔄 تصفير شامل", "🔍 بحث مستخدم", "🚫 بان مستخدم",
     "📋 تصدير المستخدمين", "🏆 المُحيلين", "⚙️ الإعدادات",
-    "❌ إخفاء"
+    "⏱️ مدة الكونفيجات", "❌ إخفاء"
 ]
 
 @bot.message_handler(func=lambda m: m.text in BTN_LIST)
@@ -429,6 +463,13 @@ def handle_btns(message):
     elif act == "⚙️ الإعدادات":
         admin_respond(chat_id, uid, "⚙️ *الإعدادات:*", settings_markup())
 
+    elif act == "⏱️ مدة الكونفيجات":
+        set_state(uid, "set_duration")
+        cur = get_setting("config_duration", 24)
+        admin_respond(chat_id, uid, 
+            f"⏱️ *إعداد مدة الكونفيجات*\n\nالمدة الحالية: `{cur}` ساعات\n\nأرسل المدة الجديدة بالأرقام (مثلاً: 12 أو 24):", 
+            back_markup())
+
     elif act == "🔄 تصفير شامل":
         admin_respond(chat_id, uid,
             "⚠️ *تصفير شامل!*\n\nحذف: لايكات + ملفات + تحميلات\n❗ المستخدمين وسجل الرسائل *لن تُحذف*",
@@ -509,6 +550,22 @@ def handle_custom_post(message):
         set_setting("custom_post_text", message.text)
         clear_state(uid)
         admin_respond(chat_id, uid, f"✅ *تم الحفظ!*\n\n{panel_text(uid)}", back_markup())
+
+
+@bot.message_handler(
+    func=lambda m: is_admin(m.from_user.id) and get_state(m.from_user.id) == "set_duration" and m.text not in BTN_LIST,
+    content_types=["text"])
+def handle_set_duration(message):
+    uid = message.from_user.id
+    chat_id = message.chat.id
+    delete_msg(chat_id, message.message_id)
+    try:
+        val = int(message.text.strip())
+        set_setting("config_duration", val)
+        clear_state(uid)
+        admin_respond(chat_id, uid, f"✅ *تم حفظ المدة بنجاح:* `{val}` ساعات\n\n{panel_text(uid)}", back_markup())
+    except:
+        admin_respond(chat_id, uid, "❌ يرجى إرسال أرقام فقط!", back_markup())
 
 
 @bot.message_handler(
@@ -701,7 +758,7 @@ def handle_delivery(call):
         try:
             result = smart_send(uid, mid)
             if result:
-                bot.answer_callback_query(call.id, "👑 تم!")
+                bot.answer_callback_query(call.id, "👑 تم التسليم وجاري التحويل!", url="https://t.me/ReactGuardbot")
             else:
                 bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
         except Exception as e:
@@ -711,7 +768,7 @@ def handle_delivery(call):
 
     if get_setting("require_subscription", True):
         if not check_subscription(uid):
-            bot.answer_callback_query(call.id, "⚠️ اشترك بالقناة أولاً!", show_alert=True)
+            bot.answer_callback_query(call.id, "⚠️ اشترك في القنوات أولاً!", show_alert=True)
             return
 
     if not has_liked(uid, mid):
@@ -721,7 +778,7 @@ def handle_delivery(call):
     try:
         result = smart_send(uid, mid)
         if result:
-            bot.answer_callback_query(call.id, "✅ تم!")
+            bot.answer_callback_query(call.id, "✅ تم التسليم وجاري التحويل!", url="https://t.me/ReactGuardbot")
             safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
         else:
             bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
@@ -757,9 +814,14 @@ def smart_send(user_id, post_id=None):
     # 3️⃣ إرسال
     if len(configs) == 1:
         cfg = configs[0]
-        caption = "📄 1/1"
-        if cfg.get("name"):
-            caption += f" • {cfg['name']}"
+        fname = cfg.get("name", "")
+        custom_cap = get_custom_caption(fname)
+        
+        if custom_cap:
+            caption = custom_cap
+        else:
+            caption = f"📄 1/1 • {fname}" if fname else "📄 1/1"
+            
         try:
             d = bot.send_document(
                 user_id,
@@ -776,9 +838,14 @@ def smart_send(user_id, post_id=None):
             media = []
             for i, cfg in enumerate(chunk):
                 num = ci * 10 + i + 1
-                caption = f"📄 {num}/{len(configs)}"
-                if cfg.get("name"):
-                    caption += f" • {cfg['name']}"
+                fname = cfg.get("name", "")
+                custom_cap = get_custom_caption(fname)
+                
+                if custom_cap:
+                    caption = custom_cap
+                else:
+                    caption = f"📄 {num}/{len(configs)} • {fname}" if fname else f"📄 {num}/{len(configs)}"
+                    
                 media.append(InputMediaDocument(
                     media=cfg["file_id"],
                     caption=caption
@@ -789,9 +856,13 @@ def smart_send(user_id, post_id=None):
             except:
                 for cfg in chunk:
                     try:
+                        fname = cfg.get("name", "")
+                        custom_cap = get_custom_caption(fname)
+                        caption = custom_cap if custom_cap else (f"📄 • {fname}" if fname else "📄")
                         d = bot.send_document(
                             user_id,
                             cfg["file_id"],
+                            caption=caption,
                             parse_mode=None
                         )
                         ids.append(d.message_id)
