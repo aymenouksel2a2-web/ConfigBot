@@ -41,7 +41,7 @@ def init_db():
             "require_subscription": True,
             "custom_post_text": "",
             "total_downloads": 0,
-            "config_duration": "24"
+            "config_duration_hours": 24  # <-- إضافة: المدة الافتراضية للكونفيجات
         }
         for key, val in defaults.items():
             settings_col.update_one(
@@ -195,19 +195,27 @@ def clear_likes():
     likes_col.delete_many({})
 
 
+# ───────────────────────────────────────────
+# 📂 تعديلات على دوال الكونفيجات (إضافة caption)
+# ───────────────────────────────────────────
+
 def add_config(file_id, file_name=None, caption=None):
     count = configs_col.count_documents({})
     configs_col.insert_one({
         "file_id": file_id,
         "file_name": file_name,
-        "caption": caption,
+        "caption": caption,  # <-- إضافة الوصف المخصص
         "order": count + 1,
         "added_at": time.time()
     })
 
 def get_all_configs():
     docs = configs_col.find({}).sort("order", 1)
-    return [{"file_id": d["file_id"], "name": d.get("file_name"), "caption": d.get("caption")} for d in docs]
+    return [{
+        "file_id": d["file_id"], 
+        "name": d.get("file_name"), 
+        "caption": d.get("caption")  # <-- إرجاع الوصف
+    } for d in docs]
 
 def get_configs_count():
     return configs_col.count_documents({})
