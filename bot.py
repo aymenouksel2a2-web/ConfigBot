@@ -282,7 +282,7 @@ def cmd_start(message):
     if get_file_msg_id:
         
         if is_new:
-            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\n🚨 *نظام الحماية:* يرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
+            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\nيرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
             notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
             return
 
@@ -291,7 +291,7 @@ def cmd_start(message):
             send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
             
-        if not check_cooldown(uid, "get"):
+        if not check_cooldown(uid, "get_start"):
             send_temp_msg(uid, "⏳ انتظر قليلاً...", 3)
             return
             
@@ -305,7 +305,7 @@ def cmd_start(message):
 
         # 🛑 التحقق الإجباري من التفاعل
         if not has_liked(uid, get_file_msg_id):
-            send_temp_msg(uid, "🚨 *نظام الحماية (Force Mode):*\n\n⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
+            send_temp_msg(uid, "⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
             return
 
         wait_msg = bot.send_message(uid, "✅ جاري إرسال الملفات...")
@@ -784,7 +784,7 @@ def handle_delivery(call):
         return
     # --------------------------------------
 
-    if not check_cooldown(uid, "get"):
+    if not check_cooldown(uid, "get_cb"):
         bot.answer_callback_query(call.id, "⏳ انتظر...", show_alert=False)
         return
     if check_maintenance(call, True): return
