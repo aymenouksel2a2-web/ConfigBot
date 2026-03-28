@@ -814,7 +814,7 @@ def handle_delivery(call):
 
 
 def smart_send(user_id, post_id=None):
-    """حذف ذكي + إرسال كألبوم"""
+    """حذف ذكي + إرسال فردي منسق"""
 
     # 1️⃣ حذف القديم
     old = get_message_history(user_id)
@@ -832,48 +832,41 @@ def smart_send(user_id, post_id=None):
 
     ids = []
 
-    # 3️⃣ إرسال
-    if len(configs) == 1:
-        cfg = configs[0]
-        caption = "📄 1/1"
-        if cfg.get("name"):
-            caption += f" • {cfg['name']}"
+    # 3️⃣ إرسال الملفات بشكل فردي مع التنسيق الجديد
+    for cfg in configs:
+        file_name = cfg.get("name", "") or ""
+        name_lower = file_name.lower()
+        
+        # بناء الوصف (Caption) بصيغة HTML لتشغيل الخط الجانبي (Blockquotes)
+        caption_html = ""
+        
+        # فحص إذا كان الكونفيج خاص باليوتيوب
+        if "yt" in name_lower or "يوتيوب" in name_lower:
+            caption_html = "<blockquote>♦️ كونفيج كسر يوتيوب</blockquote>"
+        else:
+            # الكونفيجات المجانية للشبكات
+            caption_html = "<blockquote>🍒 كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
+            
+            # فحص نوع التطبيق بناءً على الامتداد
+            if name_lower.endswith(".dark"):
+                caption_html += "<blockquote>🎱 خاص بتطبيق DARK TUNNEL</blockquote>\n"
+            elif name_lower.endswith(".ehi"):
+                caption_html += "<blockquote>💉 خاص بتطبيق HTTP INJECTOR</blockquote>\n"
+            
+            # سطر المدة الزمنية
+            caption_html += "<blockquote>⏳ المدة: 5 ساعات</blockquote>"
+
         try:
             d = bot.send_document(
                 user_id,
                 cfg["file_id"],
-                caption=caption,
-                parse_mode=None
+                caption=caption_html,
+                parse_mode="HTML"  # ضروري لتشغيل التنسيق المربع المطابق للصور
             )
             ids.append(d.message_id)
+            time.sleep(0.3) # تأخير بسيط جداً لحماية البوت من حظر التيليجرام (Spam limit)
         except Exception as e:
             print(f"Single file error: {e}")
-    else:
-        chunks = [configs[i:i+10] for i in range(0, len(configs), 10)]
-        for ci, chunk in enumerate(chunks):
-            media = []
-            for i, cfg in enumerate(chunk):
-                num = ci * 10 + i + 1
-                caption = f"📄 {num}/{len(configs)}"
-                if cfg.get("name"):
-                    caption += f" • {cfg['name']}"
-                media.append(InputMediaDocument(
-                    media=cfg["file_id"],
-                    caption=caption
-                ))
-            try:
-                msgs = bot.send_media_group(user_id, media)
-                ids.extend([m.message_id for m in msgs])
-            except:
-                for cfg in chunk:
-                    try:
-                        d = bot.send_document(
-                            user_id,
-                            cfg["file_id"],
-                            parse_mode=None
-                        )
-                        ids.append(d.message_id)
-                    except: pass
 
     # 4️⃣ حفظ
     if ids:
