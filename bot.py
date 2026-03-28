@@ -65,11 +65,12 @@ def set_state(uid, state):
 def clear_state(uid):
     admin_states.pop(uid, None)
 
-def check_cooldown(uid):
+def check_cooldown(uid, action="general"):
     now = time.time()
-    if now - cooldowns.get(uid, 0) < COOLDOWN_SEC:
+    key = f"{uid}_{action}"
+    if now - cooldowns.get(key, 0) < COOLDOWN_SEC:
         return False
-    cooldowns[uid] = now
+    cooldowns[key] = now
     return True
 
 def cleanup_memory():
@@ -286,7 +287,7 @@ def cmd_start(message):
             send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
             
-        if not check_cooldown(uid):
+        if not check_cooldown(uid, "get"):
             # استخدام الرسالة المؤقتة بدلاً من الدائمة
             send_temp_msg(uid, "⏳ انتظر قليلاً...", 3)
             return
@@ -736,7 +737,7 @@ def handle_like(call):
         # --------------------------------------
 
         cleanup_memory()
-        if not check_cooldown(uid):
+        if not check_cooldown(uid, "like"):
             bot.answer_callback_query(call.id, "⏳ انتظر...")
             return
         if check_maintenance(call, True): return
@@ -771,7 +772,7 @@ def handle_delivery(call):
         return
     # --------------------------------------
 
-    if not check_cooldown(uid):
+    if not check_cooldown(uid, "get"):
         bot.answer_callback_query(call.id, "⏳ انتظر...")
         return
     if check_maintenance(call, True): return
