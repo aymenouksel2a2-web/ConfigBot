@@ -261,11 +261,6 @@ def cmd_start(message):
 
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
-    if is_admin(uid):
-        delete_msg(message.chat.id, message.message_id)
-        show_panel(message.chat.id, uid)
-        return
-
     # --- معالجة طلب استلام الملفات من القناة مباشرة ---
     if get_file_msg_id:
         last_post = get_last_post()
@@ -277,23 +272,25 @@ def cmd_start(message):
             bot.send_message(uid, "⏳ انتظر قليلاً...")
             return
             
-        if get_setting("maintenance_mode", False):
-            bot.send_message(uid, "🔧 البوت في وضع الصيانة\nيرجى المحاولة لاحقاً...")
+        if check_maintenance(message, is_callback=False):
             return
 
-        if get_setting("require_subscription", True):
-            if not check_subscription(uid):
-                bot.send_message(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!")
+        # استثناء الأدمن من الشروط لسهولة الاختبار
+        if not is_admin(uid):
+            if get_setting("require_subscription", True):
+                if not check_subscription(uid):
+                    bot.send_message(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!")
+                    return
+
+            if not has_liked(uid, get_file_msg_id):
+                bot.send_message(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!")
                 return
-
-        if not has_liked(uid, get_file_msg_id):
-            bot.send_message(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!")
-            return
 
         bot.send_message(uid, "✅ جاري إرسال الملفات...")
         try:
             result = smart_send(uid, get_file_msg_id)
             if result:
+                # تحديث أزرار القناة لزيادة العداد
                 safe_edit_markup(CHANNEL_ID, get_file_msg_id, channel_markup(get_file_msg_id))
             else:
                 bot.send_message(uid, "⚠️ لا توجد ملفات حالياً!")
@@ -305,6 +302,11 @@ def cmd_start(message):
             notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
         return
     # ---------------------------------------------------
+
+    if is_admin(uid):
+        delete_msg(message.chat.id, message.message_id)
+        show_panel(message.chat.id, uid)
+        return
 
     bot.send_message(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.")
 
