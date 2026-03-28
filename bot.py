@@ -292,7 +292,6 @@ def cmd_start(message):
             return
             
         if not check_cooldown(uid, "get_start"):
-            send_temp_msg(uid, "⏳ انتظر قليلاً...", 3)
             return
             
         if check_maintenance(message, is_callback=False):
@@ -744,7 +743,7 @@ def handle_like(call):
 
         cleanup_memory()
         if not check_cooldown(uid, "like"):
-            bot.answer_callback_query(call.id, "⏳ انتظر...")
+            bot.answer_callback_query(call.id)
             return
         if check_maintenance(call, True): return
         if is_banned(uid):
@@ -785,7 +784,7 @@ def handle_delivery(call):
     # --------------------------------------
 
     if not check_cooldown(uid, "get_cb"):
-        bot.answer_callback_query(call.id, "⏳ انتظر...", show_alert=False)
+        bot.answer_callback_query(call.id)
         return
     if check_maintenance(call, True): return
     if is_banned(uid) and not is_admin(uid):
