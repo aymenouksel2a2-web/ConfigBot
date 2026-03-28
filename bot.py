@@ -269,11 +269,12 @@ def panel_text(uid=None):
         f"{state_txt}\n"
         "━━━━━━━━━━━━━━━━━━━")
 
-def build_join_keyboard(missing_channels, post_id=None):
+def build_join_keyboard(post_id=None):
     mk = types.InlineKeyboardMarkup(row_width=2)
-    buttons = [types.InlineKeyboardButton(ch['name'], url=ch["url"]) for ch in missing_channels]
+    # 🛑 إظهار جميع القنوات الإجبارية دائماً وبجوار بعضهما البعض
+    buttons = [types.InlineKeyboardButton(ch['name'], url=ch["url"]) for ch in MANDATORY_CHANNELS]
     
-    if len(buttons) == 2:
+    if len(buttons) >= 2:
         mk.row(buttons[0], buttons[1])
     else:
         for btn in buttons:
@@ -338,7 +339,7 @@ def cmd_start(message):
                 "⚠️ يجب عليك الاشتراك في القنوات التالية أولاً لاستخدام البوت:\n\n"
                 "🔔 بعد الاشتراك، اضغط على زر **✅ تحققت من اشتراكي** بالأسفل."
             )
-            bot.send_message(uid, text, reply_markup=build_join_keyboard(missing, get_file_msg_id), parse_mode="Markdown")
+            bot.send_message(uid, text, reply_markup=build_join_keyboard(get_file_msg_id), parse_mode="Markdown")
             if is_new:
                 notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
             return
@@ -376,7 +377,7 @@ def cmd_start(message):
             "⚠️ يجب عليك الاشتراك في القنوات التالية أولاً لاستخدام البوت:\n\n"
             "🔔 بعد الاشتراك، اضغط على زر **✅ تحققت من اشتراكي** بالأسفل."
         )
-        bot.send_message(uid, text, reply_markup=build_join_keyboard(missing), parse_mode="Markdown")
+        bot.send_message(uid, text, reply_markup=build_join_keyboard(), parse_mode="Markdown")
         if is_new:
             ref_text = f"\n🔗 أحاله: `{referrer}`" if referrer else ""
             if referrer:
