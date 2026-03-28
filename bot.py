@@ -854,19 +854,19 @@ def smart_send(user_id, post_id=None):
             
             # فحص إذا كان الكونفيج خاص باليوتيوب
             if "yt" in name_lower or "يوتيوب" in name_lower:
-                caption_html = "<blockquote>♦️ كونفيج كسر يوتيوب</blockquote>"
+                caption_html = "<blockquote>كونفيج كسر يوتيوب ♦️</blockquote>"
             else:
                 # الكونفيجات المجانية للشبكات
-                caption_html = "<blockquote>🍒 كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
+                caption_html = "<blockquote>كونفيج بدون عروض اوريدو + جيزي 🍒</blockquote>\n"
                 
                 # فحص نوع التطبيق بناءً على الامتداد
                 if name_lower.endswith(".dark"):
-                    caption_html += "<blockquote>🎱 خاص بتطبيق DARK TUNNEL</blockquote>\n"
+                    caption_html += "<blockquote>خاص بتطبيق DARK TUNNEL 🎱</blockquote>\n"
                 elif name_lower.endswith(".ehi"):
-                    caption_html += "<blockquote>💉 خاص بتطبيق HTTP INJECTOR</blockquote>\n"
+                    caption_html += "<blockquote>خاص بتطبيق HTTP INJECTOR 💉</blockquote>\n"
                 
                 # سطر المدة الزمنية
-                caption_html += "<blockquote>⏳ المدة: 5 ساعات</blockquote>"
+                caption_html += "<blockquote>المدة: 5 ساعات ⌛️</blockquote>"
 
             media_group.append(InputMediaDocument(
                 media=cfg["file_id"],
