@@ -1156,7 +1156,7 @@ if __name__ == "__main__":
 
     consecutive_409 = 0
 
-    # 🛑 تم تعديل حلقة التشغيل لضمان الإغلاق وإعادة التشغيل (Auto-Restart) إذا توقف البوت
+    # 🛑 تم تعديل حلقة التشغيل لمعالجة تداخل Render (409) بدلاً من الانهيار
     while True:
         try:
             bot.infinity_polling(
@@ -1166,6 +1166,19 @@ if __name__ == "__main__":
                 allowed_updates=["message", "callback_query"],
                 logger_level=None
             )
+        except telebot.apihelper.ApiTelegramException as e:
+            if "409" in str(e):
+                consecutive_409 += 1
+                wait = min(consecutive_409 * 5, 30)
+                print(f"⚠️ 409 #{consecutive_409} (Multiple instances overlap during deployment) - wait {wait}s...")
+                if consecutive_409 >= 30:
+                    print("❌ Too many 409! Exiting to trigger restart...")
+                    os._exit(1)
+                time.sleep(wait)
+            else:
+                print(f"❌ API Error: {e}")
+                time.sleep(5)
+                consecutive_409 = 0
         except KeyboardInterrupt:
             print("\n🛑 Stopped by user.")
             break
@@ -1175,8 +1188,7 @@ if __name__ == "__main__":
             traceback.print_exc()
             print("🔄 Force restarting the application via Render...")
             time.sleep(2)
-            os._exit(1)  # 🛑 السحر هنا: هذا السطر سيجبر التطبيق كله على التوقف، وبالتالي Render سيعيد تشغيله من جديد!
+            os._exit(1)
         else:
-            # إذا خرج من infinity_polling بدون خطأ (نادر الحدوث)، نغلقه أيضاً ليتمكن Render من استعادته
             print("⚠️ Polling stopped unexpectedly. Force restarting...")
             os._exit(1)
