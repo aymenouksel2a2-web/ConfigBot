@@ -6,6 +6,7 @@ from threading import Thread
 import os
 import time
 import traceback
+import unicodedata  # إضافة المكتبة لمعالجة الخطوط المزخرفة
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -836,7 +837,11 @@ def smart_send(user_id, post_id=None):
     grouped_configs = {}
     for cfg in configs:
         file_name = cfg.get("name", "") or ""
-        ext = file_name.split('.')[-1].lower() if '.' in file_name else "other"
+        # 💡 السر هنا: تحويل الخطوط المزخرفة إلى حروف إنجليزية عادية للتعرف عليها بسلاسة
+        name_lower = unicodedata.normalize('NFKC', file_name).lower()
+        cfg["norm_name"] = name_lower 
+        
+        ext = name_lower.split('.')[-1] if '.' in name_lower else "other"
         if ext not in grouped_configs:
             grouped_configs[ext] = []
         grouped_configs[ext].append(cfg)
@@ -846,27 +851,26 @@ def smart_send(user_id, post_id=None):
         media_group = []
         
         for cfg in cfgs:
-            file_name = cfg.get("name", "") or ""
-            name_lower = file_name.lower()
+            name_lower = cfg["norm_name"]
             
             # بناء الوصف (Caption) بصيغة HTML لتشغيل الخط الجانبي (Blockquotes)
             caption_html = ""
             
-            # فحص إذا كان الكونفيج خاص باليوتيوب
+            # فحص إذا كان الكونفيج خاص باليوتيوب باستخدام الاسم المجرد المعالج
             if "yt" in name_lower or "يوتيوب" in name_lower:
-                caption_html = "<blockquote>كونفيج كسر يوتيوب ♦️</blockquote>"
+                caption_html = "<blockquote>كونفيج كسر يوتيوب</blockquote>"
             else:
                 # الكونفيجات المجانية للشبكات
-                caption_html = "<blockquote>كونفيج بدون عروض اوريدو + جيزي 🍒</blockquote>\n"
+                caption_html = "<blockquote>كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
                 
                 # فحص نوع التطبيق بناءً على الامتداد
                 if name_lower.endswith(".dark"):
-                    caption_html += "<blockquote>خاص بتطبيق DARK TUNNEL 🎱</blockquote>\n"
+                    caption_html += "<blockquote>خاص بتطبيق DARK TUNNEL</blockquote>\n"
                 elif name_lower.endswith(".ehi"):
-                    caption_html += "<blockquote>خاص بتطبيق HTTP INJECTOR 💉</blockquote>\n"
+                    caption_html += "<blockquote>خاص بتطبيق HTTP INJECTOR</blockquote>\n"
                 
                 # سطر المدة الزمنية
-                caption_html += "<blockquote>المدة: 5 ساعات ⌛️</blockquote>"
+                caption_html += "<blockquote>المدة: 5 ساعات</blockquote>"
 
             media_group.append(InputMediaDocument(
                 media=cfg["file_id"],
