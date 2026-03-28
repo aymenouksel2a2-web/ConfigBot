@@ -176,10 +176,8 @@ def channel_markup(msg_id=None):
     
     bot_user = BOT_USERNAME or "ReactGuardbot"
     
-    if msg_id:
-        receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", url=f"https://t.me/{bot_user}?start=get_{msg_id}")
-    else:
-        receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file")
+    # 🛑 عدنا لاستخدام callback_data لكي يظهر التنبيه داخل القناة
+    receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file")
         
     mk.row(
         types.InlineKeyboardButton(f"❤️ تفاعل ({likes})", callback_data="do_like"),
@@ -280,10 +278,9 @@ def cmd_start(message):
 
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
-    # --- معالجة طلب استلام الملفات من القناة مباشرة ---
+    # --- معالجة طلب استلام الملفات داخل البوت بعد التوجيه الناجح ---
     if get_file_msg_id:
         
-        # إذا كان المستخدم جديداً تماماً (لم يفعل البوت من قبل) وضغط على استلم مباشرة
         if is_new:
             send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\n🚨 *نظام الحماية:* يرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
             notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
@@ -301,13 +298,12 @@ def cmd_start(message):
         if check_maintenance(message, is_callback=False):
             return
 
-        # تم إزالة استثناء الأدمن لكي يُجبر الجميع (حتى أنت) على تطبيق نظام Force Mode
         if get_setting("require_subscription", True):
             if not check_subscription(uid):
                 send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 6)
                 return
 
-        # 🛑 التحقق الإجباري من التفاعل (يطبق على الكل بشكل صارم)
+        # 🛑 التحقق الإجباري من التفاعل
         if not has_liked(uid, get_file_msg_id):
             send_temp_msg(uid, "🚨 *نظام الحماية (Force Mode):*\n\n⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
             return
@@ -733,7 +729,7 @@ def handle_like(call):
         uid = call.from_user.id
         mid = call.message.message_id
 
-        # 🛑 [تعديل جديد] التأكد من أن المستخدم فعل البوت من قبل
+        # 🛑 التأكد من أن المستخدم فعل البوت من قبل
         user_info = search_user(uid)
         if not user_info:
             bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
@@ -775,6 +771,12 @@ def handle_delivery(call):
     uid = call.from_user.id
     mid = call.message.message_id
 
+    # 🛑 التأكد من أن المستخدم فعل البوت من قبل (لإظهار التنبيه في القناة)
+    user_info = search_user(uid)
+    if not user_info:
+        bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
+        return
+
     # --- التحقق من أن المنشور هو الأخير ---
     last_post = get_last_post()
     if last_post and mid != last_post["message_id"]:
@@ -783,39 +785,33 @@ def handle_delivery(call):
     # --------------------------------------
 
     if not check_cooldown(uid, "get"):
-        bot.answer_callback_query(call.id, "⏳ انتظر...")
+        bot.answer_callback_query(call.id, "⏳ انتظر...", show_alert=False)
         return
     if check_maintenance(call, True): return
     if is_banned(uid) and not is_admin(uid):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
-    # تم إزالة استثناء الأدمن هنا أيضاً لكي تُجبر أنت على التفاعل كأي مستخدم عادي
-
     if get_setting("require_subscription", True):
         if not check_subscription(uid):
             bot.answer_callback_query(call.id, "⚠️ اشترك بالقناة أولاً!", show_alert=True)
             return
 
+    # 🛑 نظام الحماية الصارم (سيظهر داخل القناة)
     if not has_liked(uid, mid):
-        bot.answer_callback_query(call.id, "🚨 نظام الحماية: اضغط ❤️ أولاً لتستلم الملفات!", show_alert=True)
+        bot.answer_callback_query(call.id, "🚨 نظام الحماية (Force Mode):\n\n⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", show_alert=True)
         return
 
+    # ✅ اجتاز كل الشروط! توجيه سحري وتلقائي لداخل البوت ليتم إرسال الملفات
+    bot_user = BOT_USERNAME or "ReactGuardbot"
+    redirect_url = f"https://t.me/{bot_user}?start=get_{mid}"
+    
     try:
-        result = smart_send(uid, mid)
-        if result:
-            bot.answer_callback_query(call.id, "✅ تم!")
-            safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
-        else:
-            bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
-    except telebot.apihelper.ApiTelegramException as e:
-        if any(x in str(e).lower() for x in ["blocked","not found","deactivated"]):
-            bot.answer_callback_query(call.id, "❌ فعّل البوت أولاً! 🤖", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "❌ خطأ", show_alert=True)
+        bot.answer_callback_query(call.id, url=redirect_url)
     except Exception as e:
-        print(f"Delivery Error: {e}")
-        bot.answer_callback_query(call.id, "❌ خطأ", show_alert=True)
+        print(f"Redirect Error: {e}")
+        # في حال فشل التوجيه التلقائي لسبب ما
+        bot.answer_callback_query(call.id, "✅ تم تأكيد تفاعلك! اذهب للبوت لتجد ملفاتك.", show_alert=True)
 
 
 def smart_send(user_id, post_id=None):
