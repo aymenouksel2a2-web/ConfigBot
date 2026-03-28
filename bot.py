@@ -285,7 +285,7 @@ def cmd_start(message):
         
         # إذا كان المستخدم جديداً تماماً (لم يفعل البوت من قبل) وضغط على استلم مباشرة
         if is_new:
-            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\n⛔ *للحصول على الملفات:* يرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
+            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\n🚨 *نظام الحماية:* يرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
             notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
             return
 
@@ -307,9 +307,9 @@ def cmd_start(message):
                 send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 6)
                 return
 
-        # التحقق الإجباري من التفاعل (يطبق على الكل الآن)
+        # 🛑 التحقق الإجباري من التفاعل (يطبق على الكل بشكل صارم)
         if not has_liked(uid, get_file_msg_id):
-            send_temp_msg(uid, "⛔ *يجب عليك التفاعل أولاً!*\nعد إلى القناة واضغط على زر ❤️ المرفق مع المنشور لتتمكن من استلام الملفات.", 7)
+            send_temp_msg(uid, "🚨 *نظام الحماية (Force Mode):*\n\n⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
             return
 
         wait_msg = bot.send_message(uid, "✅ جاري إرسال الملفات...")
@@ -798,7 +798,7 @@ def handle_delivery(call):
             return
 
     if not has_liked(uid, mid):
-        bot.answer_callback_query(call.id, "⛔ اضغط ❤️ أولاً!", show_alert=True)
+        bot.answer_callback_query(call.id, "🚨 نظام الحماية: اضغط ❤️ أولاً لتستلم الملفات!", show_alert=True)
         return
 
     try:
