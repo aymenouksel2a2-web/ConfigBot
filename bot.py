@@ -83,6 +83,18 @@ def cleanup_memory():
     for k in expired:
         del cooldowns[k]
 
+def send_temp_msg(chat_id, text, delay=3):
+    """إرسال رسالة مؤقتة تُحذف تلقائياً لتنظيف الشات"""
+    try:
+        msg = bot.send_message(chat_id, text)
+        def delete_later():
+            time.sleep(delay)
+            try: bot.delete_message(chat_id, msg.message_id)
+            except: pass
+        Thread(target=delete_later).start()
+    except:
+        pass
+
 def dname(user):
     if user.username:
         return f"@{user.username}"
@@ -116,7 +128,7 @@ def check_maintenance(call_or_msg, is_callback=False):
         if is_callback:
             bot.answer_callback_query(call_or_msg.id, text, show_alert=True)
         else:
-            bot.send_message(call_or_msg.chat.id, text)
+            send_temp_msg(call_or_msg.chat.id, text, 5)
         return True
     return False
 
@@ -239,8 +251,14 @@ def cmd_start(message):
     u = message.from_user
     uid = u.id
 
+    # حذف رسالة /start فوراً لإخفائها عن المستخدم وجعل التوجيه سحرياً
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except:
+        pass
+
     if is_banned(uid) and not is_admin(uid):
-        bot.send_message(uid, "🚫 تم حظرك.")
+        send_temp_msg(uid, "🚫 تم حظرك.")
         return
 
     referrer = None
@@ -265,11 +283,12 @@ def cmd_start(message):
     if get_file_msg_id:
         last_post = get_last_post()
         if last_post and get_file_msg_id != last_post["message_id"]:
-            bot.send_message(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.")
+            send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
             
         if not check_cooldown(uid):
-            bot.send_message(uid, "⏳ انتظر قليلاً...")
+            # استخدام الرسالة المؤقتة بدلاً من الدائمة
+            send_temp_msg(uid, "⏳ انتظر قليلاً...", 3)
             return
             
         if check_maintenance(message, is_callback=False):
@@ -279,24 +298,30 @@ def cmd_start(message):
         if not is_admin(uid):
             if get_setting("require_subscription", True):
                 if not check_subscription(uid):
-                    bot.send_message(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!")
+                    send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 5)
                     return
 
             if not has_liked(uid, get_file_msg_id):
-                bot.send_message(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!")
+                send_temp_msg(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!", 5)
                 return
 
-        bot.send_message(uid, "✅ جاري إرسال الملفات...")
+        wait_msg = bot.send_message(uid, "✅ جاري إرسال الملفات...")
         try:
             result = smart_send(uid, get_file_msg_id)
             if result:
                 # تحديث أزرار القناة لزيادة العداد
                 safe_edit_markup(CHANNEL_ID, get_file_msg_id, channel_markup(get_file_msg_id))
             else:
-                bot.send_message(uid, "⚠️ لا توجد ملفات حالياً!")
+                send_temp_msg(uid, "⚠️ لا توجد ملفات حالياً!", 4)
         except Exception as e:
             print(f"Delivery Error: {e}")
-            bot.send_message(uid, "❌ حدث خطأ أثناء إرسال الملفات.")
+            send_temp_msg(uid, "❌ حدث خطأ أثناء إرسال الملفات.", 4)
+            
+        # حذف رسالة جاري الإرسال بعد التسليم لتنظيف الشات
+        try:
+            bot.delete_message(uid, wait_msg.message_id)
+        except:
+            pass
             
         if is_new:
             notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
@@ -304,11 +329,10 @@ def cmd_start(message):
     # ---------------------------------------------------
 
     if is_admin(uid):
-        delete_msg(message.chat.id, message.message_id)
         show_panel(message.chat.id, uid)
         return
 
-    bot.send_message(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.")
+    send_temp_msg(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.", 5)
 
     if is_new:
         ref_text = ""
