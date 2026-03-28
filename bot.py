@@ -87,7 +87,7 @@ def cleanup_memory():
 def send_temp_msg(chat_id, text, delay=3):
     """إرسال رسالة مؤقتة تُحذف تلقائياً لتنظيف الشات"""
     try:
-        msg = bot.send_message(chat_id, text)
+        msg = bot.send_message(chat_id, text, parse_mode="Markdown")
         def delete_later():
             time.sleep(delay)
             try: bot.delete_message(chat_id, msg.message_id)
@@ -282,29 +282,35 @@ def cmd_start(message):
 
     # --- معالجة طلب استلام الملفات من القناة مباشرة ---
     if get_file_msg_id:
+        
+        # إذا كان المستخدم جديداً تماماً (لم يفعل البوت من قبل) وضغط على استلم مباشرة
+        if is_new:
+            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\n⛔ *للحصول على الملفات:* يرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
+            notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
+            return
+
         last_post = get_last_post()
         if last_post and get_file_msg_id != last_post["message_id"]:
             send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
             
         if not check_cooldown(uid, "get"):
-            # استخدام الرسالة المؤقتة بدلاً من الدائمة
             send_temp_msg(uid, "⏳ انتظر قليلاً...", 3)
             return
             
         if check_maintenance(message, is_callback=False):
             return
 
-        # استثناء الأدمن من الشروط لسهولة الاختبار
-        if not is_admin(uid):
-            if get_setting("require_subscription", True):
-                if not check_subscription(uid):
-                    send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 5)
-                    return
-
-            if not has_liked(uid, get_file_msg_id):
-                send_temp_msg(uid, "⛔ يجب عليك التفاعل بـ ❤️ على المنشور في القناة أولاً!", 5)
+        # تم إزالة استثناء الأدمن لكي يُجبر الجميع (حتى أنت) على تطبيق نظام Force Mode
+        if get_setting("require_subscription", True):
+            if not check_subscription(uid):
+                send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 6)
                 return
+
+        # التحقق الإجباري من التفاعل (يطبق على الكل الآن)
+        if not has_liked(uid, get_file_msg_id):
+            send_temp_msg(uid, "⛔ *يجب عليك التفاعل أولاً!*\nعد إلى القناة واضغط على زر ❤️ المرفق مع المنشور لتتمكن من استلام الملفات.", 7)
+            return
 
         wait_msg = bot.send_message(uid, "✅ جاري إرسال الملفات...")
         try:
@@ -324,8 +330,6 @@ def cmd_start(message):
         except:
             pass
             
-        if is_new:
-            notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
         return
     # ---------------------------------------------------
 
@@ -729,6 +733,12 @@ def handle_like(call):
         uid = call.from_user.id
         mid = call.message.message_id
 
+        # 🛑 [تعديل جديد] التأكد من أن المستخدم فعل البوت من قبل
+        user_info = search_user(uid)
+        if not user_info:
+            bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
+            return
+
         # --- التحقق من أن المنشور هو الأخير ---
         last_post = get_last_post()
         if last_post and mid != last_post["message_id"]:
@@ -780,17 +790,7 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
-    if is_admin(uid):
-        try:
-            result = smart_send(uid, mid)
-            if result:
-                bot.answer_callback_query(call.id, "👑 تم!")
-            else:
-                bot.answer_callback_query(call.id, "⚠️ لا توجد ملفات!", show_alert=True)
-        except Exception as e:
-            print(f"Admin delivery error: {e}")
-            bot.answer_callback_query(call.id, f"❌ {str(e)[:80]}", show_alert=True)
-        return
+    # تم إزالة استثناء الأدمن هنا أيضاً لكي تُجبر أنت على التفاعل كأي مستخدم عادي
 
     if get_setting("require_subscription", True):
         if not check_subscription(uid):
