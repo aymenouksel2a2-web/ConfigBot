@@ -8,6 +8,7 @@ import time
 import traceback
 import unicodedata  
 import logging # أضفنا مكتبة التسجيل لكتم إزعاج سيرفر الويب
+from telebot.apihelper import ApiTelegramException
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -52,11 +53,11 @@ CHANNEL_USER_2 = os.environ.get("CHANNEL_USER_2", "@O_C_X7")
 CHANNEL_URL_2 = os.environ.get("CHANNEL_URL_2", "https://t.me/O_C_X7")
 CHANNEL_NAME_2 = os.environ.get("CHANNEL_NAME_2", "OCX")
 
-MANDATORY_CHANNELS = []
-if CHANNEL_ID_1 and str(CHANNEL_ID_1).strip():
-    MANDATORY_CHANNELS.append({"id": CHANNEL_ID_1, "username": CHANNEL_USER_1, "url": CHANNEL_URL_1, "name": CHANNEL_NAME_1})
-if CHANNEL_ID_2 and str(CHANNEL_ID_2).strip():
-    MANDATORY_CHANNELS.append({"id": CHANNEL_ID_2, "username": CHANNEL_USER_2, "url": CHANNEL_URL_2, "name": CHANNEL_NAME_2})
+# 🛑 إجبار إظهار القناتين دائماً
+MANDATORY_CHANNELS = [
+    {"id": CHANNEL_ID_1, "username": CHANNEL_USER_1, "url": CHANNEL_URL_1, "name": CHANNEL_NAME_1},
+    {"id": CHANNEL_ID_2, "username": CHANNEL_USER_2, "url": CHANNEL_URL_2, "name": CHANNEL_NAME_2},
+]
 
 bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 BOT_USERNAME = None
@@ -271,7 +272,7 @@ def panel_text(uid=None):
 
 def build_join_keyboard(post_id=None):
     mk = types.InlineKeyboardMarkup(row_width=2)
-    # 🛑 إظهار جميع القنوات الإجبارية دائماً وبجوار بعضهما البعض
+    # 🛑 إظهار جميع القنوات الإجبارية دائماً وبجوار بعضهما البعض بدون إضافات
     buttons = [types.InlineKeyboardButton(ch['name'], url=ch["url"]) for ch in MANDATORY_CHANNELS]
     
     if len(buttons) >= 2:
@@ -1092,6 +1093,23 @@ def health():
 def keep_alive():
     port = int(os.environ.get("PORT", 8080))
     Thread(target=lambda: app.run(host="0.0.0.0", port=port), daemon=True).start()
+    
+    # 🛑 نظام إبقاء البوت مستيقظاً (Self-Ping)
+    def ping_self():
+        import requests
+        time.sleep(10)
+        url = os.environ.get("RENDER_EXTERNAL_URL")
+        if not url:
+            return
+        
+        while True:
+            try:
+                requests.get(f"{url}/health", timeout=5)
+            except:
+                pass
+            time.sleep(4 * 60) # Ping every 4 minutes
+
+    Thread(target=ping_self, daemon=True).start()
 
 
 # ══════════════════════════════════════════
@@ -1108,15 +1126,15 @@ def force_clear_session():
             time.sleep(2)
 
     print("🧹 Step 2: Wait for old instance...")
-    time.sleep(15)
+    time.sleep(10)
 
     print("🧹 Step 3: Clear updates...")
     for attempt in range(10):
         try:
-            bot.get_updates(offset=-1, timeout=1)
+            bot.get_updates(offset=-1, timeout=5)
             print(f"   ✅ Cleared! (attempt {attempt+1})")
             return True
-        except telebot.apihelper.ApiTelegramException as e:
+        except ApiTelegramException as e:
             if "409" in str(e):
                 print(f"   ⏳ 409 (attempt {attempt+1}) - wait 5s...")
                 time.sleep(5)
@@ -1161,18 +1179,18 @@ if __name__ == "__main__":
     while True:
         try:
             bot.infinity_polling(
-                skip_pending=True,
+                skip_pending=False, # We cleared manually
                 timeout=25,
                 long_polling_timeout=20,
                 allowed_updates=["message", "callback_query"],
                 logger_level=None
             )
-        except telebot.apihelper.ApiTelegramException as e:
+        except ApiTelegramException as e:
             if "409" in str(e):
                 consecutive_409 += 1
                 wait = min(consecutive_409 * 5, 30)
                 print(f"⚠️ 409 #{consecutive_409} (Multiple instances overlap during deployment) - wait {wait}s...")
-                if consecutive_409 >= 30:
+                if consecutive_409 >= 10:
                     print("❌ Too many 409! Exiting to trigger restart...")
                     os._exit(1)
                 time.sleep(wait)
@@ -1187,9 +1205,4 @@ if __name__ == "__main__":
             consecutive_409 = 0
             print(f"❌ FATAL ERROR: {e}")
             traceback.print_exc()
-            print("🔄 Force restarting the application via Render...")
-            time.sleep(2)
-            os._exit(1)
-        else:
-            print("⚠️ Polling stopped unexpectedly. Force restarting...")
-            os._exit(1)
+            time.sleep(5)
