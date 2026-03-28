@@ -814,7 +814,7 @@ def handle_delivery(call):
 
 
 def smart_send(user_id, post_id=None):
-    """حذف ذكي + إرسال فردي منسق"""
+    """حذف ذكي + إرسال في مجموعات (ألبومات) مجمعة حسب الامتداد"""
 
     # 1️⃣ حذف القديم
     old = get_message_history(user_id)
@@ -831,42 +831,84 @@ def smart_send(user_id, post_id=None):
         return False
 
     ids = []
-
-    # 3️⃣ إرسال الملفات بشكل فردي مع التنسيق الجديد
+    
+    # تجميع الملفات حسب الامتداد
+    grouped_configs = {}
     for cfg in configs:
         file_name = cfg.get("name", "") or ""
-        name_lower = file_name.lower()
-        
-        # بناء الوصف (Caption) بصيغة HTML لتشغيل الخط الجانبي (Blockquotes)
-        caption_html = ""
-        
-        # فحص إذا كان الكونفيج خاص باليوتيوب
-        if "yt" in name_lower or "يوتيوب" in name_lower:
-            caption_html = "<blockquote>♦️ كونفيج كسر يوتيوب</blockquote>"
-        else:
-            # الكونفيجات المجانية للشبكات
-            caption_html = "<blockquote>🍒 كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
-            
-            # فحص نوع التطبيق بناءً على الامتداد
-            if name_lower.endswith(".dark"):
-                caption_html += "<blockquote>🎱 خاص بتطبيق DARK TUNNEL</blockquote>\n"
-            elif name_lower.endswith(".ehi"):
-                caption_html += "<blockquote>💉 خاص بتطبيق HTTP INJECTOR</blockquote>\n"
-            
-            # سطر المدة الزمنية
-            caption_html += "<blockquote>⏳ المدة: 5 ساعات</blockquote>"
+        ext = file_name.split('.')[-1].lower() if '.' in file_name else "other"
+        if ext not in grouped_configs:
+            grouped_configs[ext] = []
+        grouped_configs[ext].append(cfg)
 
-        try:
-            d = bot.send_document(
-                user_id,
-                cfg["file_id"],
+    # 3️⃣ إرسال الملفات المجمعة
+    for ext, cfgs in grouped_configs.items():
+        media_group = []
+        
+        for cfg in cfgs:
+            file_name = cfg.get("name", "") or ""
+            name_lower = file_name.lower()
+            
+            # بناء الوصف (Caption) بصيغة HTML لتشغيل الخط الجانبي (Blockquotes)
+            caption_html = ""
+            
+            # فحص إذا كان الكونفيج خاص باليوتيوب
+            if "yt" in name_lower or "يوتيوب" in name_lower:
+                caption_html = "<blockquote>♦️ كونفيج كسر يوتيوب</blockquote>"
+            else:
+                # الكونفيجات المجانية للشبكات
+                caption_html = "<blockquote>🍒 كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
+                
+                # فحص نوع التطبيق بناءً على الامتداد
+                if name_lower.endswith(".dark"):
+                    caption_html += "<blockquote>🎱 خاص بتطبيق DARK TUNNEL</blockquote>\n"
+                elif name_lower.endswith(".ehi"):
+                    caption_html += "<blockquote>💉 خاص بتطبيق HTTP INJECTOR</blockquote>\n"
+                
+                # سطر المدة الزمنية
+                caption_html += "<blockquote>⏳ المدة: 5 ساعات</blockquote>"
+
+            media_group.append(InputMediaDocument(
+                media=cfg["file_id"],
                 caption=caption_html,
-                parse_mode="HTML"  # ضروري لتشغيل التنسيق المربع المطابق للصور
-            )
-            ids.append(d.message_id)
-            time.sleep(0.3) # تأخير بسيط جداً لحماية البوت من حظر التيليجرام (Spam limit)
-        except Exception as e:
-            print(f"Single file error: {e}")
+                parse_mode="HTML"
+            ))
+        
+        # إرسال المجموعة
+        if len(media_group) == 1:
+            try:
+                d = bot.send_document(
+                    user_id,
+                    media_group[0].media,
+                    caption=media_group[0].caption,
+                    parse_mode="HTML"
+                )
+                ids.append(d.message_id)
+                time.sleep(0.3)
+            except Exception as e:
+                print(f"Single file error: {e}")
+        elif len(media_group) > 1:
+            # تقسيم إلى مجموعات من 10 (الحد الأقصى للألبوم في تيليجرام)
+            chunks = [media_group[i:i+10] for i in range(0, len(media_group), 10)]
+            for chunk in chunks:
+                try:
+                    msgs = bot.send_media_group(user_id, chunk)
+                    ids.extend([m.message_id for m in msgs])
+                    time.sleep(0.5)
+                except Exception as e:
+                    print(f"Media group error: {e}")
+                    # في حال فشل الألبوم، نرسلها فردياً مع الحفاظ على التنسيق
+                    for item in chunk:
+                        try:
+                            d = bot.send_document(
+                                user_id,
+                                item.media,
+                                caption=item.caption,
+                                parse_mode="HTML"
+                            )
+                            ids.append(d.message_id)
+                            time.sleep(0.3)
+                        except: pass
 
     # 4️⃣ حفظ
     if ids:
