@@ -6,7 +6,7 @@ from threading import Thread
 import os
 import time
 import traceback
-import unicodedata  # إضافة المكتبة لمعالجة الخطوط المزخرفة
+import unicodedata  
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -24,21 +24,37 @@ from database import (
 
 
 # ══════════════════════════════════════════
-# ⚙️ CONFIGURATION
+# ⚙️ CONFIGURATION (إعدادات البيئة للقناتين والأدمنين)
 # ══════════════════════════════════════════
 
-TOKEN      = os.environ.get("BOT_TOKEN", "YOUR_TOKEN")
-ADMIN_ID   = int(os.environ.get("ADMIN_ID", "7846022798"))
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003858414969"))
+TOKEN = os.environ.get("BOT_TOKEN", "YOUR_TOKEN")
 
-EXTRA_ADMINS = os.environ.get("EXTRA_ADMINS", "")
-ADMIN_IDS = {ADMIN_ID}
-if EXTRA_ADMINS:
-    for a in EXTRA_ADMINS.split(","):
-        try:
-            ADMIN_IDS.add(int(a.strip()))
-        except:
-            pass
+# 🛑 إعدادات المدراء (2 أدمن)
+ADMIN_ID_1 = os.environ.get("ADMIN_ID_1", "7846022798")
+ADMIN_ID_2 = os.environ.get("ADMIN_ID_2", "")
+
+ADMIN_IDS = set()
+for aid in [ADMIN_ID_1, ADMIN_ID_2]:
+    if aid and str(aid).strip():
+        try: ADMIN_IDS.add(int(str(aid).strip()))
+        except: pass
+
+# 🛑 إعدادات القناة الأولى
+CHANNEL_ID_1 = os.environ.get("CHANNEL_ID_1", "-1003858414969")
+CHANNEL_USER_1 = os.environ.get("CHANNEL_USER_1", "@L_XT_IX_OG")
+CHANNEL_URL_1 = os.environ.get("CHANNEL_URL_1", "https://t.me/L_XT_IX_OG")
+CHANNEL_NAME_1 = os.environ.get("CHANNEL_NAME_1", "القناة الأولى 1️⃣")
+
+# 🛑 إعدادات القناة الثانية
+CHANNEL_ID_2 = os.environ.get("CHANNEL_ID_2", "-100123456789") # ضع أيدي القناة الثانية هنا
+CHANNEL_USER_2 = os.environ.get("CHANNEL_USER_2", "@O_C_X7")
+CHANNEL_URL_2 = os.environ.get("CHANNEL_URL_2", "https://t.me/O_C_X7")
+CHANNEL_NAME_2 = os.environ.get("CHANNEL_NAME_2", "القناة الثانية 2️⃣")
+
+MANDATORY_CHANNELS = [
+    {"id": CHANNEL_ID_1, "username": CHANNEL_USER_1, "url": CHANNEL_URL_1, "name": CHANNEL_NAME_1},
+    {"id": CHANNEL_ID_2, "username": CHANNEL_USER_2, "url": CHANNEL_URL_2, "name": CHANNEL_NAME_2},
+]
 
 bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 BOT_USERNAME = None
@@ -48,6 +64,9 @@ admin_panel_msg = {}
 cooldowns = {}
 COOLDOWN_SEC = 3
 last_cleanup = time.time()
+
+# 🛑 خريطة تتبع البوستات النشطة لفصل القنوات وإحصائياتها عن بعضها بدقة
+ACTIVE_POSTS_MAP = {}
 
 
 # ══════════════════════════════════════════
@@ -86,7 +105,6 @@ def cleanup_memory():
         del cooldowns[k]
 
 def send_temp_msg(chat_id, text, delay=3):
-    """إرسال رسالة مؤقتة تُحذف تلقائياً لتنظيف الشات"""
     try:
         msg = bot.send_message(chat_id, text, parse_mode="Markdown")
         def delete_later():
@@ -115,14 +133,18 @@ def notify_admins(text):
         except:
             pass
 
-def check_subscription(user_id):
+def get_missing_channels(user_id):
     if not get_setting("require_subscription", True):
-        return True
-    try:
-        member = bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return True
+        return []
+    missing = []
+    for ch in MANDATORY_CHANNELS:
+        try:
+            member = bot.get_chat_member(ch["id"], user_id)
+            if member.status in ["left", "kicked"]:
+                missing.append(ch)
+        except Exception:
+            missing.append(ch)
+    return missing
 
 def check_maintenance(call_or_msg, is_callback=False):
     if get_setting("maintenance_mode", False):
@@ -140,6 +162,14 @@ def safe_edit_markup(chat_id, message_id, markup):
         return True
     except:
         return False
+
+def update_channel_post_markup(msg_id):
+    chat_id = ACTIVE_POSTS_MAP.get(msg_id)
+    if chat_id:
+        safe_edit_markup(chat_id, msg_id, channel_markup(msg_id))
+    else:
+        for ch in MANDATORY_CHANNELS:
+            safe_edit_markup(ch["id"], msg_id, channel_markup(msg_id))
 
 
 # ══════════════════════════════════════════
@@ -167,7 +197,7 @@ def admin_respond(chat_id, uid, text, inline_markup=None):
 
 
 # ══════════════════════════════════════════
-# 🎨 MARKUPS
+# 🎨 MARKUPS (لوحات التحكم المنظمة)
 # ══════════════════════════════════════════
 
 def channel_markup(msg_id=None):
@@ -176,8 +206,6 @@ def channel_markup(msg_id=None):
     mk = types.InlineKeyboardMarkup(row_width=2)
     
     bot_user = BOT_USERNAME or "ReactGuardbot"
-    
-    # 🛑 عدنا لاستخدام callback_data لكي يظهر التنبيه داخل القناة
     receive_btn = types.InlineKeyboardButton(f"📥 استلم ({dl})", callback_data="get_file")
         
     mk.row(
@@ -188,16 +216,15 @@ def channel_markup(msg_id=None):
         url=f"https://t.me/{bot_user}?start=channel"))
     return mk
 
+# 🛑 تصميم جديد ومحسن للوحة تحكم الإدارة (منفصل ومرتب)
 def main_admin_markup():
-    mk = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    mk.add("📤 رفع ملفات",   "📤 إضافة ملفات")
-    mk.add("✅ إنهاء",        "📢 نشر بالقناة")
-    mk.add("🗑️ حذف الملفات", "📊 الإحصائيات")
-    mk.add("👥 المتفاعلين",  "📣 إذاعة جماعية")
-    mk.add("✏️ تخصيص البوست", "🔄 تصفير شامل")
-    mk.add("🔍 بحث مستخدم",  "🚫 بان مستخدم")
-    mk.add("📋 تصدير المستخدمين", "🏆 المُحيلين")
-    mk.add("⚙️ الإعدادات",    "❌ إخفاء")
+    mk = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    mk.row("📤 رفع ملفات", "📤 إضافة ملفات", "🗑️ حذف الملفات")
+    mk.row("📢 نشر القناة 1️⃣", "📢 نشر القناة 2️⃣", "📢 نشر بالقناتين 🚀")
+    mk.row("📊 الإحصائيات", "👥 المتفاعلين", "🏆 المُحيلين")
+    mk.row("✏️ تخصيص البوست", "📣 إذاعة جماعية", "🔄 تصفير شامل")
+    mk.row("🔍 بحث مستخدم", "🚫 بان مستخدم", "📋 تصدير")
+    mk.row("⚙️ الإعدادات", "✅ إنهاء", "❌ إخفاء")
     return mk
 
 def back_markup():
@@ -241,6 +268,14 @@ def panel_text(uid=None):
         f"{state_txt}\n"
         "━━━━━━━━━━━━━━━━━━━")
 
+def build_join_keyboard(missing_channels, post_id=None):
+    mk = types.InlineKeyboardMarkup(row_width=1)
+    for ch in missing_channels:
+        mk.add(types.InlineKeyboardButton(f"📢 {ch['name']}", url=ch["url"]))
+    
+    cb_data = f"check_sub_{post_id}" if post_id else "check_sub_none"
+    mk.add(types.InlineKeyboardButton("✅ تحققت من اشتراكي", callback_data=cb_data))
+    return mk
 
 # ══════════════════════════════════════════
 # 🚀 START
@@ -251,7 +286,6 @@ def cmd_start(message):
     u = message.from_user
     uid = u.id
 
-    # حذف رسالة /start فوراً لإخفائها عن المستخدم وجعل التوجيه سحرياً
     try:
         bot.delete_message(message.chat.id, message.message_id)
     except:
@@ -279,16 +313,10 @@ def cmd_start(message):
 
     is_new = add_user(uid, u.username, u.first_name, referrer)
 
-    # --- معالجة طلب استلام الملفات داخل البوت بعد التوجيه الناجح ---
     if get_file_msg_id:
         
-        if is_new:
-            send_temp_msg(uid, "🤖 تم تفعيل حسابك بنجاح!\n\nيرجى العودة للقناة والضغط على زر ❤️ أولاً، ثم اضغط استلام.", 10)
-            notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
-            return
-
-        last_post = get_last_post()
-        if last_post and get_file_msg_id != last_post["message_id"]:
+        # الاعتماد كلياً على الـ MAP بدلاً من get_last_post لضمان استقلالية القنوات
+        if ACTIVE_POSTS_MAP and get_file_msg_id not in ACTIVE_POSTS_MAP:
             send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
             
@@ -298,12 +326,18 @@ def cmd_start(message):
         if check_maintenance(message, is_callback=False):
             return
 
-        if get_setting("require_subscription", True):
-            if not check_subscription(uid):
-                send_temp_msg(uid, "⚠️ اشترك بالقناة أولاً، ثم اضغط على زر الاستلام مجدداً!", 6)
-                return
+        missing = get_missing_channels(uid)
+        if missing:
+            text = (
+                f"👋 أهلاً بك {u.first_name}!\n\n"
+                "⚠️ يجب عليك الاشتراك في القنوات التالية أولاً لاستخدام البوت:\n\n"
+                "🔔 بعد الاشتراك، اضغط على زر **✅ تحققت من اشتراكي** بالأسفل."
+            )
+            bot.send_message(uid, text, reply_markup=build_join_keyboard(missing, get_file_msg_id), parse_mode="Markdown")
+            if is_new:
+                notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`\n📊 الإجمالي: `{get_users_count()}`")
+            return
 
-        # 🛑 التحقق الإجباري من التفاعل
         if not has_liked(uid, get_file_msg_id):
             send_temp_msg(uid, "⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
             return
@@ -312,25 +346,39 @@ def cmd_start(message):
         try:
             result = smart_send(uid, get_file_msg_id)
             if result:
-                # تحديث أزرار القناة لزيادة العداد
-                safe_edit_markup(CHANNEL_ID, get_file_msg_id, channel_markup(get_file_msg_id))
+                update_channel_post_markup(get_file_msg_id)
             else:
                 send_temp_msg(uid, "⚠️ لا توجد ملفات حالياً!", 4)
         except Exception as e:
             print(f"Delivery Error: {e}")
             send_temp_msg(uid, "❌ حدث خطأ أثناء إرسال الملفات.", 4)
             
-        # حذف رسالة جاري الإرسال بعد التسليم لتنظيف الشات
         try:
             bot.delete_message(uid, wait_msg.message_id)
         except:
             pass
             
         return
-    # ---------------------------------------------------
 
     if is_admin(uid):
         show_panel(message.chat.id, uid)
+        return
+
+    missing = get_missing_channels(uid)
+    if missing:
+        text = (
+            f"👋 أهلاً بك {u.first_name}!\n\n"
+            "⚠️ يجب عليك الاشتراك في القنوات التالية أولاً لاستخدام البوت:\n\n"
+            "🔔 بعد الاشتراك، اضغط على زر **✅ تحققت من اشتراكي** بالأسفل."
+        )
+        bot.send_message(uid, text, reply_markup=build_join_keyboard(missing), parse_mode="Markdown")
+        if is_new:
+            ref_text = f"\n🔗 أحاله: `{referrer}`" if referrer else ""
+            if referrer:
+                try:
+                    bot.send_message(referrer, f"🎉 شخص جديد عبر إحالتك!\n📊 إحالاتك: `{get_referral_count(referrer)}`")
+                except: pass
+            notify_admins(f"👤 *مستخدم جديد!*\n• {dname(u)}\n• ID: `{uid}`{ref_text}\n📊 الإجمالي: `{get_users_count()}`")
         return
 
     send_temp_msg(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.", 5)
@@ -373,13 +421,14 @@ def show_panel(chat_id, uid):
 # 🎛️ ADMIN BUTTONS
 # ══════════════════════════════════════════
 
+# 🛑 قائمة الأزرار المحدثة
 BTN_LIST = [
-    "📤 رفع ملفات", "📤 إضافة ملفات", "✅ إنهاء",
-    "📢 نشر بالقناة", "🗑️ حذف الملفات", "📊 الإحصائيات",
-    "👥 المتفاعلين", "📣 إذاعة جماعية", "✏️ تخصيص البوست",
-    "🔄 تصفير شامل", "🔍 بحث مستخدم", "🚫 بان مستخدم",
-    "📋 تصدير المستخدمين", "🏆 المُحيلين", "⚙️ الإعدادات",
-    "❌ إخفاء"
+    "📤 رفع ملفات", "📤 إضافة ملفات", "🗑️ حذف الملفات",
+    "📢 نشر القناة 1️⃣", "📢 نشر القناة 2️⃣", "📢 نشر بالقناتين 🚀",
+    "📊 الإحصائيات", "👥 المتفاعلين", "🏆 المُحيلين",
+    "✏️ تخصيص البوست", "📣 إذاعة جماعية", "🔄 تصفير شامل",
+    "🔍 بحث مستخدم", "🚫 بان مستخدم", "📋 تصدير",
+    "⚙️ الإعدادات", "✅ إنهاء", "❌ إخفاء"
 ]
 
 @bot.message_handler(func=lambda m: m.text in BTN_LIST)
@@ -439,31 +488,30 @@ def handle_btns(message):
             if len(names) > 40: txt += f"\n... +{len(names)-40}"
             admin_respond(chat_id, uid, txt[:4000], back_markup())
 
-    elif act == "📢 نشر بالقناة":
+    # 🛑 أزرار النشر المنفصلة
+    elif act == "📢 نشر القناة 1️⃣":
         configs = get_all_configs()
         if not configs:
             admin_respond(chat_id, uid, "⚠️ لا توجد ملفات!", back_markup())
             return
-        custom = get_setting("custom_post_text", "")
-        text = custom if custom else (
-            "⚡️ *تم تجديد الكونفيجات!*\n\n"
-            f"📂 عدد الملفات: `{len(configs)}`\n"
-            "🚀 سرعة عالية | ⏳ محدد المدة\n\n"
-            "━━━━━━━━━━━━━━━\n"
-            "📌 *طريقة الاستلام:*\n\n"
-            "1️⃣ فعّل البوت بالضغط على 🤖\n"
-            "2️⃣ ادعمنا بضغطة ❤️\n"
-            "3️⃣ اضغط 📥 لاستلام الملفات\n"
-            "━━━━━━━━━━━━━━━\n"
-            "⚠️ سارع قبل انتهاء الصلاحية!")
-        try:
-            sent = bot.send_message(CHANNEL_ID, text, parse_mode="Markdown")
-            bot.edit_message_reply_markup(CHANNEL_ID, sent.message_id, reply_markup=channel_markup(sent.message_id))
-            add_post(sent.message_id, text)
-            admin_respond(chat_id, uid,
-                f"✅ *تم النشر!* ID: `{sent.message_id}`\n\n{panel_text(uid)}", back_markup())
-        except Exception as e:
-            admin_respond(chat_id, uid, f"❌ خطأ:\n`{e}`", back_markup())
+        set_state(uid, "waiting_for_duration_1")
+        admin_respond(chat_id, uid, "⏳ *كم مدة الكونفيج للقناة الأولى؟*\n\nأرسل المدة الآن (مثال: `5` أو `4:30` أو `6`):", back_markup())
+
+    elif act == "📢 نشر القناة 2️⃣":
+        configs = get_all_configs()
+        if not configs:
+            admin_respond(chat_id, uid, "⚠️ لا توجد ملفات!", back_markup())
+            return
+        set_state(uid, "waiting_for_duration_2")
+        admin_respond(chat_id, uid, "⏳ *كم مدة الكونفيج للقناة الثانية؟*\n\nأرسل المدة الآن (مثال: `5` أو `4:30` أو `6`):", back_markup())
+
+    elif act == "📢 نشر بالقناتين 🚀":
+        configs = get_all_configs()
+        if not configs:
+            admin_respond(chat_id, uid, "⚠️ لا توجد ملفات!", back_markup())
+            return
+        set_state(uid, "waiting_for_duration_all")
+        admin_respond(chat_id, uid, "⏳ *كم مدة الكونفيج للقناتين؟*\n\nأرسل المدة الآن (مثال: `5` أو `4:30` أو `6`):", back_markup())
 
     elif act == "✏️ تخصيص البوست":
         set_state(uid, "custom_post")
@@ -488,7 +536,7 @@ def handle_btns(message):
         admin_respond(chat_id, uid,
             "🚫 أرسل *ID* للحظر\nأو `unban ID` لفك الحظر", back_markup())
 
-    elif act == "📋 تصدير المستخدمين":
+    elif act == "📋 تصدير":
         users = export_users_list()
         if not users:
             admin_respond(chat_id, uid, "⚠️ لا يوجد.", back_markup())
@@ -530,6 +578,56 @@ def handle_btns(message):
 # ══════════════════════════════════════════
 # 🔙 INLINE CALLBACKS
 # ══════════════════════════════════════════
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("check_sub_"))
+def handle_check_sub(call):
+    uid = call.from_user.id
+    post_id_str = call.data.replace("check_sub_", "")
+    
+    missing = get_missing_channels(uid)
+    if missing:
+        try:
+            bot.answer_callback_query(call.id, "❌ لم تشترك في جميع القنوات!", show_alert=True)
+        except: pass
+    else:
+        try:
+            bot.delete_message(uid, call.message.message_id)
+        except: pass
+        
+        try: bot.answer_callback_query(call.id, "✅ تم التحقق بنجاح!", show_alert=False)
+        except: pass
+        
+        if post_id_str != "none":
+            try:
+                post_id = int(post_id_str)
+            except:
+                return
+
+            if ACTIVE_POSTS_MAP and post_id not in ACTIVE_POSTS_MAP:
+                send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
+                return
+
+            if not has_liked(uid, post_id):
+                send_temp_msg(uid, "⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", 8)
+                return
+            
+            wait_msg = bot.send_message(uid, "✅ جاري إرسال الملفات...")
+            try:
+                result = smart_send(uid, post_id)
+                if result:
+                    update_channel_post_markup(post_id)
+                else:
+                    send_temp_msg(uid, "⚠️ لا توجد ملفات حالياً!", 4)
+            except Exception as e:
+                send_temp_msg(uid, "❌ حدث خطأ أثناء إرسال الملفات.", 4)
+                
+            try:
+                bot.delete_message(uid, wait_msg.message_id)
+            except:
+                pass
+        else:
+            send_temp_msg(uid, "✅ تم تفعيل البوت، ارجع للقناة واستلم ملفاتك.", 5)
+
 
 @bot.callback_query_handler(
     func=lambda c: c.data in [
@@ -576,6 +674,65 @@ def handle_admin_cb(call):
 # ══════════════════════════════════════════
 # 📝 STATE HANDLERS
 # ══════════════════════════════════════════
+
+# 🛑 معالجة المدة المدخلة وتوجيه النشر للقنوات المختارة بشكل مستقل
+@bot.message_handler(
+    func=lambda m: is_admin(m.from_user.id) and str(get_state(m.from_user.id)).startswith("waiting_for_duration"),
+    content_types=["text"])
+def handle_duration_input(message):
+    uid = message.from_user.id
+    chat_id = message.chat.id
+    state = get_state(uid)
+    delete_msg(chat_id, message.message_id)
+    
+    duration = message.text.strip()
+    set_setting("current_config_duration", duration)
+    clear_state(uid)
+
+    configs = get_all_configs()
+    custom = get_setting("custom_post_text", "")
+    text = custom if custom else (
+        "⚡️ *تم تجديد الكونفيجات!*\n\n"
+        f"📂 عدد الملفات: `{len(configs)}`\n"
+        "🚀 سرعة عالية | ⏳ محدد المدة\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📌 *طريقة الاستلام:*\n\n"
+        "1️⃣ فعّل البوت بالضغط على 🤖\n"
+        "2️⃣ ادعمنا بضغطة ❤️\n"
+        "3️⃣ اضغط 📥 لاستلام الملفات\n"
+        "━━━━━━━━━━━━━━━\n"
+        "⚠️ سارع قبل انتهاء الصلاحية!")
+        
+    success_msg = f"✅ *تم النشر بنجاح!*\n(المدة المضبوطة: `{duration}` ساعات)\n\n"
+    
+    # تحديد القنوات المستهدفة بناءً على الزر المضغوط
+    targets = []
+    if state == "waiting_for_duration_1":
+        targets = [MANDATORY_CHANNELS[0]]
+    elif state == "waiting_for_duration_2":
+        targets = [MANDATORY_CHANNELS[1]]
+    else:
+        targets = MANDATORY_CHANNELS
+    
+    for ch in targets:
+        try:
+            sent = bot.send_message(ch["id"], text, parse_mode="Markdown")
+            bot.edit_message_reply_markup(ch["id"], sent.message_id, reply_markup=channel_markup(sent.message_id))
+            add_post(sent.message_id, text)
+            
+            # 🛑 مسح البوستات القديمة لهذه القناة المحددة فقط من الخريطة (حتى لا تعمل الأزرار القديمة)
+            old_msg_ids = [k for k, v in ACTIVE_POSTS_MAP.items() if v == ch["id"]]
+            for old_id in old_msg_ids:
+                del ACTIVE_POSTS_MAP[old_id]
+                
+            # تسجيل ID البوست الجديد وربطه بالقناة
+            ACTIVE_POSTS_MAP[sent.message_id] = ch["id"]
+            success_msg += f"📢 {ch['name']}: نشر تم (ID: `{sent.message_id}`)\n"
+        except Exception as e:
+            success_msg += f"❌ خطأ في {ch['name']}: `{e}`\n"
+
+    admin_respond(chat_id, uid, success_msg + f"\n{panel_text(uid)}", back_markup())
+
 
 @bot.message_handler(
     func=lambda m: is_admin(m.from_user.id) and get_state(m.from_user.id) == "custom_post" and m.text not in BTN_LIST,
@@ -729,18 +886,20 @@ def handle_like(call):
         uid = call.from_user.id
         mid = call.message.message_id
 
-        # 🛑 التأكد من أن المستخدم فعل البوت من قبل
         user_info = search_user(uid)
         if not user_info:
             bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
             return
 
-        # --- التحقق من أن المنشور هو الأخير ---
-        last_post = get_last_post()
-        if last_post and mid != last_post["message_id"]:
+        missing = get_missing_channels(uid)
+        if missing:
+            bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت والاشتراك في القنوات أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
+            return
+
+        # 🛑 التحقق من الخريطة لضمان أن هذا البوست هو النشط الخاص بهذه القناة
+        if ACTIVE_POSTS_MAP and mid not in ACTIVE_POSTS_MAP:
             bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
             return
-        # --------------------------------------
 
         cleanup_memory()
         if not check_cooldown(uid, "like"):
@@ -750,11 +909,14 @@ def handle_like(call):
         if is_banned(uid):
             bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
             return
+            
         is_new = add_like(uid, mid, dname(call.from_user))
         if not is_new:
             bot.answer_callback_query(call.id, "⚠️ سبق أن دعمت! ❤️", show_alert=True)
             return
-        safe_edit_markup(call.message.chat.id, mid, channel_markup(mid))
+            
+        # 🛑 التحديث يتم في القناة الصحيحة فقط
+        update_channel_post_markup(mid)
         bot.answer_callback_query(call.id, "✅ شكراً! ❤️")
     except Exception as e:
         print(f"Like Error: {e}")
@@ -771,18 +933,15 @@ def handle_delivery(call):
     uid = call.from_user.id
     mid = call.message.message_id
 
-    # 🛑 التأكد من أن المستخدم فعل البوت من قبل (لإظهار التنبيه في القناة)
     user_info = search_user(uid)
     if not user_info:
         bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
         return
 
-    # --- التحقق من أن المنشور هو الأخير ---
-    last_post = get_last_post()
-    if last_post and mid != last_post["message_id"]:
+    # 🛑 التحقق من الخريطة
+    if ACTIVE_POSTS_MAP and mid not in ACTIVE_POSTS_MAP:
         bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
         return
-    # --------------------------------------
 
     if not check_cooldown(uid, "get_cb"):
         bot.answer_callback_query(call.id)
@@ -792,17 +951,20 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🚫 محظور!", show_alert=True)
         return
 
-    if get_setting("require_subscription", True):
-        if not check_subscription(uid):
-            bot.answer_callback_query(call.id, "⚠️ اشترك بالقناة أولاً!", show_alert=True)
-            return
+    missing = get_missing_channels(uid)
+    if missing:
+        bot_user = BOT_USERNAME or "ReactGuardbot"
+        redirect_url = f"https://t.me/{bot_user}?start=get_{mid}"
+        try:
+            bot.answer_callback_query(call.id, url=redirect_url)
+        except:
+            bot.answer_callback_query(call.id, "⚠️ يرجى تفعيل البوت والاشتراك في القنوات أولاً!", show_alert=True)
+        return
 
-    # 🛑 نظام الحماية الصارم (سيظهر داخل القناة)
     if not has_liked(uid, mid):
         bot.answer_callback_query(call.id, "⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", show_alert=True)
         return
 
-    # ✅ اجتاز كل الشروط! توجيه سحري وتلقائي لداخل البوت ليتم إرسال الملفات
     bot_user = BOT_USERNAME or "ReactGuardbot"
     redirect_url = f"https://t.me/{bot_user}?start=get_{mid}"
     
@@ -810,7 +972,6 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, url=redirect_url)
     except Exception as e:
         print(f"Redirect Error: {e}")
-        # في حال فشل التوجيه التلقائي لسبب ما
         bot.answer_callback_query(call.id, "✅ تم تأكيد تفاعلك! اذهب للبوت لتجد ملفاتك.", show_alert=True)
 
 
@@ -833,11 +994,11 @@ def smart_send(user_id, post_id=None):
 
     ids = []
     
-    # تجميع الملفات حسب الامتداد
+    current_duration = get_setting("current_config_duration", "5")
+    
     grouped_configs = {}
     for cfg in configs:
         file_name = cfg.get("name", "") or ""
-        # 💡 السر هنا: تحويل الخطوط المزخرفة إلى حروف إنجليزية عادية للتعرف عليها بسلاسة
         name_lower = unicodedata.normalize('NFKC', file_name).lower()
         cfg["norm_name"] = name_lower 
         
@@ -852,25 +1013,19 @@ def smart_send(user_id, post_id=None):
         
         for cfg in cfgs:
             name_lower = cfg["norm_name"]
-            
-            # بناء الوصف (Caption) بصيغة HTML لتشغيل الخط الجانبي (Blockquotes)
             caption_html = ""
             
-            # فحص إذا كان الكونفيج خاص باليوتيوب باستخدام الاسم المجرد المعالج
             if "yt" in name_lower or "يوتيوب" in name_lower:
                 caption_html = "<blockquote>كونفيج كسر يوتيوب</blockquote>"
             else:
-                # الكونفيجات المجانية للشبكات
                 caption_html = "<blockquote>كونفيج بدون عروض اوريدو + جيزي</blockquote>\n"
                 
-                # فحص نوع التطبيق بناءً على الامتداد
                 if name_lower.endswith(".dark"):
                     caption_html += "<blockquote>خاص بتطبيق DARK TUNNEL</blockquote>\n"
                 elif name_lower.endswith(".ehi"):
                     caption_html += "<blockquote>خاص بتطبيق HTTP INJECTOR</blockquote>\n"
                 
-                # سطر المدة الزمنية
-                caption_html += "<blockquote>المدة: 5 ساعات</blockquote>"
+                caption_html += f"<blockquote>المدة: {current_duration} ساعات</blockquote>"
 
             media_group.append(InputMediaDocument(
                 media=cfg["file_id"],
@@ -878,7 +1033,6 @@ def smart_send(user_id, post_id=None):
                 parse_mode="HTML"
             ))
         
-        # إرسال المجموعة
         if len(media_group) == 1:
             try:
                 d = bot.send_document(
@@ -892,7 +1046,6 @@ def smart_send(user_id, post_id=None):
             except Exception as e:
                 print(f"Single file error: {e}")
         elif len(media_group) > 1:
-            # تقسيم إلى مجموعات من 10 (الحد الأقصى للألبوم في تيليجرام)
             chunks = [media_group[i:i+10] for i in range(0, len(media_group), 10)]
             for chunk in chunks:
                 try:
@@ -901,7 +1054,6 @@ def smart_send(user_id, post_id=None):
                     time.sleep(0.5)
                 except Exception as e:
                     print(f"Media group error: {e}")
-                    # في حال فشل الألبوم، نرسلها فردياً مع الحفاظ على التنسيق
                     for item in chunk:
                         try:
                             d = bot.send_document(
@@ -992,7 +1144,7 @@ if __name__ == "__main__":
         exit(1)
 
     print(f"👑 Admins: {ADMIN_IDS}")
-    print(f"📢 Channel: {CHANNEL_ID}")
+    print(f"📢 Channels: {[c['username'] for c in MANDATORY_CHANNELS]}")
 
     print("🧹 Clearing sessions...")
     force_clear_session()
