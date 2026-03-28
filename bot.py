@@ -799,7 +799,7 @@ def handle_delivery(call):
 
     # 🛑 نظام الحماية الصارم (سيظهر داخل القناة)
     if not has_liked(uid, mid):
-        bot.answer_callback_query(call.id, "🚨 نظام الحماية (Force Mode):\n\n⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", show_alert=True)
+        bot.answer_callback_query(call.id, "⛔ لا يمكنك استلام الملفات لأنك لم تتفاعل مع المنشور!\n\nارجع للقناة واضغط على زر (❤️ تفاعل) أولاً.", show_alert=True)
         return
 
     # ✅ اجتاز كل الشروط! توجيه سحري وتلقائي لداخل البوت ليتم إرسال الملفات
