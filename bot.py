@@ -44,18 +44,19 @@ for aid in [ADMIN_ID_1, ADMIN_ID_2]:
 CHANNEL_ID_1 = os.environ.get("CHANNEL_ID_1", "-1003858414969")
 CHANNEL_USER_1 = os.environ.get("CHANNEL_USER_1", "@L_XT_IX_OG")
 CHANNEL_URL_1 = os.environ.get("CHANNEL_URL_1", "https://t.me/L_XT_IX_OG")
-CHANNEL_NAME_1 = os.environ.get("CHANNEL_NAME_1", "القناة الأولى 1️⃣")
+CHANNEL_NAME_1 = os.environ.get("CHANNEL_NAME_1", "LX TIX")
 
 # 🛑 إعدادات القناة الثانية
 CHANNEL_ID_2 = os.environ.get("CHANNEL_ID_2", "-100123456789") 
 CHANNEL_USER_2 = os.environ.get("CHANNEL_USER_2", "@O_C_X7")
 CHANNEL_URL_2 = os.environ.get("CHANNEL_URL_2", "https://t.me/O_C_X7")
-CHANNEL_NAME_2 = os.environ.get("CHANNEL_NAME_2", "القناة الثانية 2️⃣")
+CHANNEL_NAME_2 = os.environ.get("CHANNEL_NAME_2", "OCX")
 
-MANDATORY_CHANNELS = [
-    {"id": CHANNEL_ID_1, "username": CHANNEL_USER_1, "url": CHANNEL_URL_1, "name": CHANNEL_NAME_1},
-    {"id": CHANNEL_ID_2, "username": CHANNEL_USER_2, "url": CHANNEL_URL_2, "name": CHANNEL_NAME_2},
-]
+MANDATORY_CHANNELS = []
+if CHANNEL_ID_1 and str(CHANNEL_ID_1).strip():
+    MANDATORY_CHANNELS.append({"id": CHANNEL_ID_1, "username": CHANNEL_USER_1, "url": CHANNEL_URL_1, "name": CHANNEL_NAME_1})
+if CHANNEL_ID_2 and str(CHANNEL_ID_2).strip():
+    MANDATORY_CHANNELS.append({"id": CHANNEL_ID_2, "username": CHANNEL_USER_2, "url": CHANNEL_URL_2, "name": CHANNEL_NAME_2})
 
 bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 BOT_USERNAME = None
@@ -269,10 +270,15 @@ def panel_text(uid=None):
         "━━━━━━━━━━━━━━━━━━━")
 
 def build_join_keyboard(missing_channels, post_id=None):
-    mk = types.InlineKeyboardMarkup(row_width=1)
-    for ch in missing_channels:
-        mk.add(types.InlineKeyboardButton(f"📢 {ch['name']}", url=ch["url"]))
+    mk = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [types.InlineKeyboardButton(ch['name'], url=ch["url"]) for ch in missing_channels]
     
+    if len(buttons) == 2:
+        mk.row(buttons[0], buttons[1])
+    else:
+        for btn in buttons:
+            mk.add(btn)
+            
     cb_data = f"check_sub_{post_id}" if post_id else "check_sub_none"
     mk.add(types.InlineKeyboardButton("✅ تحققت من اشتراكي", callback_data=cb_data))
     return mk
