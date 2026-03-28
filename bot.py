@@ -7,6 +7,7 @@ import os
 import time
 import traceback
 import unicodedata  
+import logging # أضفنا مكتبة التسجيل لكتم إزعاج سيرفر الويب
 
 from database import (
     init_db, add_user, get_all_users, get_users_count,
@@ -46,7 +47,7 @@ CHANNEL_URL_1 = os.environ.get("CHANNEL_URL_1", "https://t.me/L_XT_IX_OG")
 CHANNEL_NAME_1 = os.environ.get("CHANNEL_NAME_1", "القناة الأولى 1️⃣")
 
 # 🛑 إعدادات القناة الثانية
-CHANNEL_ID_2 = os.environ.get("CHANNEL_ID_2", "-100123456789") # ضع أيدي القناة الثانية هنا
+CHANNEL_ID_2 = os.environ.get("CHANNEL_ID_2", "-100123456789") 
 CHANNEL_USER_2 = os.environ.get("CHANNEL_USER_2", "@O_C_X7")
 CHANNEL_URL_2 = os.environ.get("CHANNEL_URL_2", "https://t.me/O_C_X7")
 CHANNEL_NAME_2 = os.environ.get("CHANNEL_NAME_2", "القناة الثانية 2️⃣")
@@ -197,7 +198,7 @@ def admin_respond(chat_id, uid, text, inline_markup=None):
 
 
 # ══════════════════════════════════════════
-# 🎨 MARKUPS (لوحات التحكم المنظمة)
+# 🎨 MARKUPS
 # ══════════════════════════════════════════
 
 def channel_markup(msg_id=None):
@@ -216,7 +217,6 @@ def channel_markup(msg_id=None):
         url=f"https://t.me/{bot_user}?start=channel"))
     return mk
 
-# 🛑 تصميم جديد ومحسن للوحة تحكم الإدارة (منفصل ومرتب)
 def main_admin_markup():
     mk = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     mk.row("📤 رفع ملفات", "📤 إضافة ملفات", "🗑️ حذف الملفات")
@@ -315,7 +315,6 @@ def cmd_start(message):
 
     if get_file_msg_id:
         
-        # الاعتماد كلياً على الـ MAP بدلاً من get_last_post لضمان استقلالية القنوات
         if ACTIVE_POSTS_MAP and get_file_msg_id not in ACTIVE_POSTS_MAP:
             send_temp_msg(uid, "🚫 هذا المنشور قديم! انتقل للجديد في القناة.", 5)
             return
@@ -421,7 +420,6 @@ def show_panel(chat_id, uid):
 # 🎛️ ADMIN BUTTONS
 # ══════════════════════════════════════════
 
-# 🛑 قائمة الأزرار المحدثة
 BTN_LIST = [
     "📤 رفع ملفات", "📤 إضافة ملفات", "🗑️ حذف الملفات",
     "📢 نشر القناة 1️⃣", "📢 نشر القناة 2️⃣", "📢 نشر بالقناتين 🚀",
@@ -488,7 +486,6 @@ def handle_btns(message):
             if len(names) > 40: txt += f"\n... +{len(names)-40}"
             admin_respond(chat_id, uid, txt[:4000], back_markup())
 
-    # 🛑 أزرار النشر المنفصلة
     elif act == "📢 نشر القناة 1️⃣":
         configs = get_all_configs()
         if not configs:
@@ -675,7 +672,6 @@ def handle_admin_cb(call):
 # 📝 STATE HANDLERS
 # ══════════════════════════════════════════
 
-# 🛑 معالجة المدة المدخلة وتوجيه النشر للقنوات المختارة بشكل مستقل
 @bot.message_handler(
     func=lambda m: is_admin(m.from_user.id) and str(get_state(m.from_user.id)).startswith("waiting_for_duration"),
     content_types=["text"])
@@ -705,7 +701,6 @@ def handle_duration_input(message):
         
     success_msg = f"✅ *تم النشر بنجاح!*\n(المدة المضبوطة: `{duration}` ساعات)\n\n"
     
-    # تحديد القنوات المستهدفة بناءً على الزر المضغوط
     targets = []
     if state == "waiting_for_duration_1":
         targets = [MANDATORY_CHANNELS[0]]
@@ -720,12 +715,10 @@ def handle_duration_input(message):
             bot.edit_message_reply_markup(ch["id"], sent.message_id, reply_markup=channel_markup(sent.message_id))
             add_post(sent.message_id, text)
             
-            # 🛑 مسح البوستات القديمة لهذه القناة المحددة فقط من الخريطة (حتى لا تعمل الأزرار القديمة)
             old_msg_ids = [k for k, v in ACTIVE_POSTS_MAP.items() if v == ch["id"]]
             for old_id in old_msg_ids:
                 del ACTIVE_POSTS_MAP[old_id]
                 
-            # تسجيل ID البوست الجديد وربطه بالقناة
             ACTIVE_POSTS_MAP[sent.message_id] = ch["id"]
             success_msg += f"📢 {ch['name']}: نشر تم (ID: `{sent.message_id}`)\n"
         except Exception as e:
@@ -896,7 +889,6 @@ def handle_like(call):
             bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت والاشتراك في القنوات أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
             return
 
-        # 🛑 التحقق من الخريطة لضمان أن هذا البوست هو النشط الخاص بهذه القناة
         if ACTIVE_POSTS_MAP and mid not in ACTIVE_POSTS_MAP:
             bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
             return
@@ -915,7 +907,6 @@ def handle_like(call):
             bot.answer_callback_query(call.id, "⚠️ سبق أن دعمت! ❤️", show_alert=True)
             return
             
-        # 🛑 التحديث يتم في القناة الصحيحة فقط
         update_channel_post_markup(mid)
         bot.answer_callback_query(call.id, "✅ شكراً! ❤️")
     except Exception as e:
@@ -938,7 +929,6 @@ def handle_delivery(call):
         bot.answer_callback_query(call.id, "🤖 يرجى تفعيل البوت أولاً بالضغط على زر (فعّل البوت أولاً) بالأسفل 👇", show_alert=True)
         return
 
-    # 🛑 التحقق من الخريطة
     if ACTIVE_POSTS_MAP and mid not in ACTIVE_POSTS_MAP:
         bot.answer_callback_query(call.id, "🚫 هذا المنشور قديم! انتقل للجديد.", show_alert=True)
         return
@@ -1075,8 +1065,12 @@ def smart_send(user_id, post_id=None):
 
 
 # ══════════════════════════════════════════
-# 🌐 FLASK
+# 🌐 FLASK & SERVER SETUP
 # ══════════════════════════════════════════
+
+# 🛑 إخفاء سجلات Flask المزعجة للتركيز على أخطاء البوت فقط
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -1128,7 +1122,7 @@ def force_clear_session():
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("  🤖 VPN Bot V13 Final")
+    print("  🤖 VPN Bot V13 Final (Dual Channels & Watchdog)")
     print("=" * 45)
 
     print("🔧 MongoDB...")
@@ -1156,6 +1150,7 @@ if __name__ == "__main__":
 
     consecutive_409 = 0
 
+    # 🛑 تم تعديل حلقة التشغيل لضمان الإغلاق وإعادة التشغيل (Auto-Restart) إذا توقف البوت
     while True:
         try:
             bot.infinity_polling(
@@ -1165,31 +1160,17 @@ if __name__ == "__main__":
                 allowed_updates=["message", "callback_query"],
                 logger_level=None
             )
-        except telebot.apihelper.ApiTelegramException as e:
-            if "409" in str(e):
-                consecutive_409 += 1
-                wait = min(consecutive_409 * 5, 30)
-                print(f"⚠️ 409 #{consecutive_409} - wait {wait}s...")
-                if consecutive_409 >= 30:
-                    print("❌ Too many 409! Exiting...")
-                    break
-                time.sleep(wait)
-                try:
-                    bot.remove_webhook()
-                    time.sleep(1)
-                    bot.get_updates(offset=-1, timeout=1)
-                except: pass
-            else:
-                print(f"❌ API Error: {e}")
-                time.sleep(5)
-                consecutive_409 = 0
         except KeyboardInterrupt:
-            print("\n🛑 Stopped.")
+            print("\n🛑 Stopped by user.")
             break
         except Exception as e:
             consecutive_409 = 0
-            print(f"❌ {e}")
+            print(f"❌ FATAL ERROR: {e}")
             traceback.print_exc()
-            time.sleep(5)
+            print("🔄 Force restarting the application via Render...")
+            time.sleep(2)
+            os._exit(1)  # 🛑 السحر هنا: هذا السطر سيجبر التطبيق كله على التوقف، وبالتالي Render سيعيد تشغيله من جديد!
         else:
-            consecutive_409 = 0
+            # إذا خرج من infinity_polling بدون خطأ (نادر الحدوث)، نغلقه أيضاً ليتمكن Render من استعادته
+            print("⚠️ Polling stopped unexpectedly. Force restarting...")
+            os._exit(1)
